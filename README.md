@@ -2,7 +2,7 @@
 
 ## GUI explorer for ZPAQ archives powered by zpaqfranz. Browse versions, extract files, test integrity and add new content — no installation required
 
-![catpaq screenshot](screenshots/main.png)
+![catpaq screenshot](screenshots/200x200.jpg)
 
 ZPAQ is one of the best compression formats around — great compression ratio, incremental backups, full version history. The catch: it has no official GUI. **catpaq** fixes that. Drop it next to `zpaqfranz`, open an archive, and you're done.
 
