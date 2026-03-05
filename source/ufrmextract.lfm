@@ -1,0 +1,198 @@
+object frmExtract: TfrmExtract
+  Left = 0
+  Height = 600
+  Top = 0
+  Width = 680
+  Caption = 'Extract from archive'
+  ClientHeight = 600
+  ClientWidth = 680
+  KeyPreview = True
+  OnClose = FormClose
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  OnKeyDown = FormKeyDown
+  OnResize = FormResize
+  Position = poScreenCenter
+  object pnlTop: TPanel
+    Left = 0
+    Height = 190
+    Top = 0
+    Width = 680
+    Align = alTop
+    BevelOuter = bvNone
+    TabOrder = 0
+    object lblInfo: TLabel
+      Left = 12
+      Height = 18
+      Top = 8
+      Width = 656
+      Anchors = [akTop, akLeft, akRight]
+      Caption = ''
+      AutoSize = False
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object lblDestPath: TLabel
+      Left = 12
+      Height = 18
+      Top = 34
+      Width = 200
+      Caption = 'Destination folder:'
+      AutoSize = True
+    end
+    object cmbDestPath: TComboBox
+      Left = 12
+      Height = 28
+      Top = 54
+      Width = 596
+      Anchors = [akTop, akLeft, akRight]
+      TabOrder = 0
+      OnKeyDown = cmbDestPathKeyDown
+    end
+    object btnBrowse: TButton
+      Left = 616
+      Height = 28
+      Top = 54
+      Width = 52
+      Anchors = [akTop, akRight]
+      Caption = '...'
+      TabOrder = 1
+      OnClick = btnBrowseClick
+    end
+    object pnlExtraFields: TPanel
+      Left = 0
+      Height = 90
+      Top = 95
+      Width = 680
+      Anchors = [akTop, akLeft, akRight]
+      BevelOuter = bvNone
+      TabOrder = 2
+      object lblTo: TLabel
+        Left = 12
+        Height = 18
+        Top = 2
+        Width = 50
+        Caption = 'To:'
+        AutoSize = True
+      end
+      object edtTo: TEdit
+        Left = 70
+        Height = 26
+        Top = 0
+        Width = 590
+        Anchors = [akTop, akLeft, akRight]
+        TabOrder = 0
+      end
+      object lblFind: TLabel
+        Left = 12
+        Height = 18
+        Top = 34
+        Width = 50
+        Caption = 'Find:'
+        AutoSize = True
+      end
+      object edtFind: TEdit
+        Left = 70
+        Height = 26
+        Top = 32
+        Width = 590
+        Anchors = [akTop, akLeft, akRight]
+        TabOrder = 1
+      end
+      object lblReplace: TLabel
+        Left = 12
+        Height = 18
+        Top = 66
+        Width = 70
+        Caption = 'Replace:'
+        AutoSize = True
+      end
+      object edtReplace: TEdit
+        Left = 70
+        Height = 26
+        Top = 64
+        Width = 590
+        Anchors = [akTop, akLeft, akRight]
+        TabOrder = 2
+      end
+    end
+  end
+  object pnlBottom: TPanel
+    Left = 0
+    Height = 48
+    Top = 552
+    Width = 680
+    Align = alBottom
+    BevelOuter = bvNone
+    TabOrder = 1
+    object btnAbort: TButton
+      Left = 400
+      Height = 32
+      Top = 8
+      Width = 88
+      Anchors = [akTop, akRight]
+      Caption = 'ABORT'
+      Enabled = False
+      Font.Color = clRed
+      Font.Style = [fsBold]
+      ParentFont = False
+      TabOrder = 0
+      Visible = False
+      OnClick = btnAbortClick
+    end
+    object btnOK: TBitBtn
+      Left = 496
+      Height = 32
+      Top = 8
+      Width = 80
+      Anchors = [akTop, akRight]
+      Caption = 'Extract'
+      Kind = bkOK
+      TabOrder = 1
+      OnClick = btnOKClick
+    end
+    object btnCancel: TBitBtn
+      Left = 584
+      Height = 32
+      Top = 8
+      Width = 84
+      Anchors = [akTop, akRight]
+      Caption = 'Cancel'
+      TabOrder = 2
+      OnClick = btnCancelClick
+    end
+  end
+  object memLog: TMemo
+    Left = 0
+    Height = 362
+    Top = 190
+    Width = 680
+    Align = alClient
+    ReadOnly = True
+    ScrollBars = ssVertical
+    TabOrder = 2
+    WordWrap = False
+    PopupMenu = PopupMenuLog
+  end
+  object SelectDirectoryDialog1: TSelectDirectoryDialog
+    Title = 'Select destination folder'
+    Left = 12
+    Top = 540
+  end
+  object PopupMenuLog: TPopupMenu
+    Left = 60
+    Top = 540
+    object mnuSaveLog: TMenuItem
+      Caption = 'Save log to file...'
+      OnClick = mnuSaveLogClick
+    end
+    object mnuClearLog: TMenuItem
+      Caption = 'Clear log'
+      OnClick = mnuClearLogClick
+    end
+  end
+  object SaveDialog1: TSaveDialog
+    Left = 110
+    Top = 540
+  end
+end

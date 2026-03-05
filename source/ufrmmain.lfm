@@ -1,0 +1,858 @@
+object frmMain: TfrmMain
+  Left = 1268
+  Height = 1682
+  Top = 225
+  Width = 2500
+  Caption = 'Catpaq - ZPAQ Archive Explorer'
+  ClientHeight = 1682
+  ClientWidth = 2500
+  DesignTimePPI = 240
+  Position = poScreenCenter
+  LCLVersion = '4.4.0.0'
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  OnShow = FormShow
+  object PageControl1: TPageControl
+    Left = 0
+    Height = 1682
+    Top = 0
+    Width = 2500
+    ActivePage = TabAdd
+    Align = alClient
+    TabIndex = 0
+    TabOrder = 0
+    OnChange = PageControl1Change
+    object TabAdd: TTabSheet
+      Caption = 'Add'
+      ClientHeight = 1610
+      ClientWidth = 2480
+      object pnlAddToolbar: TPanel
+        Left = 0
+        Height = 120
+        Top = 0
+        Width = 2480
+        Align = alTop
+        BevelOuter = bvNone
+        ClientHeight = 120
+        ClientWidth = 2480
+        Color = clBtnFace
+        ParentBackground = False
+        ParentColor = False
+        TabOrder = 0
+        object btnAddAdd: TButton
+          Left = 16
+          Height = 100
+          Top = 10
+          Width = 200
+          Caption = 'Add'
+          Font.Height = -32
+          Font.Style = [fsBold]
+          ParentFont = False
+          TabOrder = 0
+          OnClick = btnAddAddClick
+        end
+        object btnAddExtract: TButton
+          Left = 232
+          Height = 100
+          Top = 10
+          Width = 200
+          Caption = 'Extract'
+          Font.Height = -32
+          Font.Style = [fsBold]
+          ParentFont = False
+          TabOrder = 1
+          Visible = False
+          OnClick = btnAddExtractClick
+        end
+        object btnAddTest: TButton
+          Left = 448
+          Height = 100
+          Top = 10
+          Width = 200
+          Caption = 'Test'
+          Font.Height = -32
+          Font.Style = [fsBold]
+          ParentFont = False
+          TabOrder = 2
+          Visible = False
+          OnClick = btnAddTestClick
+        end
+      end
+      object pnlAddFilter: TPanel
+        Left = 0
+        Height = 60
+        Top = 120
+        Width = 2480
+        Align = alTop
+        BevelOuter = bvNone
+        ClientHeight = 60
+        ClientWidth = 2480
+        TabOrder = 1
+        object lblAddFilter: TLabel
+          Left = 16
+          Height = 41
+          Top = 10
+          Width = 86
+          Caption = 'Select:'
+          ParentColor = False
+        end
+        object edtAddFilter: TEdit
+          Left = 130
+          Height = 49
+          Top = 8
+          Width = 800
+          TabOrder = 0
+          TextHint = 'Type filter and press Enter (=exact match)'
+          OnKeyPress = edtAddFilterKeyPress
+        end
+        object lblAddPath: TLabel
+          Left = 960
+          Height = 41
+          Top = 10
+          Width = 65
+          Caption = 'Path:'
+          ParentColor = False
+        end
+      end
+      object pnlAddNav: TPanel
+        Left = 0
+        Height = 66
+        Top = 180
+        Width = 2480
+        Align = alTop
+        BevelOuter = bvNone
+        ClientHeight = 66
+        ClientWidth = 2480
+        TabOrder = 2
+        object cmbAddDrives: TComboBox
+          Left = 272
+          Height = 49
+          Top = 3
+          Width = 144
+          ItemHeight = 41
+          Style = csDropDownList
+          TabOrder = 0
+          OnChange = cmbAddDrivesChange
+        end
+        object edtAddPath: TEdit
+          Left = 432
+          Height = 49
+          Top = 3
+          Width = 1700
+          TabOrder = 1
+          OnKeyPress = edtAddPathKeyPress
+        end
+        object btnAddUp: TButton
+          Left = 184
+          Height = 49
+          Top = 3
+          Width = 80
+          Caption = '..'
+          TabOrder = 2
+          OnClick = btnAddUpClick
+        end
+        object btnAddRefresh: TButton
+          Left = 8
+          Height = 49
+          Top = 3
+          Width = 168
+          Caption = 'Refresh'
+          TabOrder = 3
+          OnClick = btnAddRefreshClick
+        end
+      end
+      object lvAddFiles: TListView
+        Left = 0
+        Height = 1364
+        Top = 246
+        Width = 2480
+        Align = alClient
+        Columns = <        
+          item
+            Caption = 'Name'
+            Width = 600
+          end        
+          item
+            Alignment = taRightJustify
+            Caption = 'Size'
+            Width = 200
+          end        
+          item
+            Caption = 'Modified'
+            Width = 300
+          end        
+          item
+            Caption = 'Created'
+            Width = 300
+          end        
+          item
+            Caption = 'Attributes'
+            Width = 150
+          end        
+          item
+            Caption = 'Ext'
+          end>
+        MultiSelect = True
+        PopupMenu = PopupMenuAdd
+        ReadOnly = True
+        RowSelect = True
+        TabOrder = 3
+        ViewStyle = vsReport
+        OnAdvancedCustomDrawItem = lvAddFilesAdvancedCustomDrawItem
+        OnColumnClick = lvAddFilesColumnClick
+        OnDblClick = lvAddFilesDblClick
+        OnKeyDown = lvAddFilesKeyDown
+        OnMouseWheel = lvAddFilesMouseWheel
+        OnSelectItem = lvAddFilesSelectItem
+      end
+    end
+    object TabArchive: TTabSheet
+      Caption = 'Archive'
+      ClientHeight = 1610
+      ClientWidth = 2480
+      object VST: TLazVirtualStringTree
+        Left = 0
+        Height = 1156
+        Top = 55
+        Width = 2480
+        Align = alClient
+        DefaultText = 'Node'
+        Header.AutoSizeIndex = 3
+        Header.Columns = <        
+          item
+            Position = 0
+            Text = 'File Name'
+            Width = 1000
+          end        
+          item
+            Alignment = taRightJustify
+            Position = 1
+            Text = 'Version'
+            Width = 200
+          end        
+          item
+            Position = 2
+            Text = 'Date'
+            Width = 300
+          end        
+          item
+            Position = 3
+            Text = 'Time'
+            Width = 250
+          end        
+          item
+            Alignment = taRightJustify
+            Position = 4
+            Text = 'Size'
+            Width = 250
+          end>
+        Header.Height = 132
+        Header.Options = [hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible]
+        PopupMenu = PopupMenu1
+        TabOrder = 0
+        TreeOptions.MiscOptions = [toFullRepaintOnResize, toInitOnSave, toToggleOnDblClick, toWheelPanning]
+        TreeOptions.SelectionOptions = [toFullRowSelect, toMultiSelect, toRightClickSelect]
+        OnBeforeCellPaint = VSTBeforeCellPaint
+        OnGetText = VSTGetText
+        OnPaintText = VSTPaintText
+        OnGetImageIndex = VSTGetImageIndex
+        OnInitChildren = VSTInitChildren
+        OnInitNode = VSTInitNode
+        OnKeyDown = VSTKeyDown
+        OnMouseWheel = VSTMouseWheel
+      end
+      object PanelBottom: TPanel
+        Left = 0
+        Height = 399
+        Top = 1211
+        Width = 2480
+        Align = alBottom
+        BevelOuter = bvNone
+        ClientHeight = 399
+        ClientWidth = 2480
+        Font.Name = 'Segoe UI'
+        Font.Pitch = fpVariable
+        Font.Quality = fqDraft
+        Font.Style = [fsBold]
+        ParentFont = False
+        TabOrder = 1
+        OnResize = PanelBottomResize
+        object lblArchiveInfo: TLabel
+          Left = 0
+          Height = 41
+          Top = 0
+          Width = 2480
+          Align = alTop
+          Caption = 'No archive loaded'
+          ParentColor = False
+        end
+        object TrackBar1: TTrackBar
+          Left = 0
+          Height = 118
+          Top = 41
+          Width = 2480
+          Max = 0
+          Position = 0
+          OnChange = TrackBar1Change
+          Align = alTop
+          TabOrder = 0
+        end
+        object pnlCerca: TPanel
+          Left = 0
+          Height = 103
+          Top = 159
+          Width = 2480
+          Align = alTop
+          BevelInner = bvLowered
+          BevelWidth = 2
+          ClientHeight = 103
+          ClientWidth = 2480
+          TabOrder = 1
+          object lblFilter: TLabel
+            Left = 24
+            Height = 41
+            Top = 24
+            Width = 83
+            Caption = 'Filter:'
+            ParentColor = False
+          end
+          object edtFilter: TEdit
+            Left = 128
+            Height = 49
+            Top = 24
+            Width = 1000
+            TabOrder = 0
+            TextHint = 'Type and press Enter (=exact match)'
+            OnKeyPress = edtFilterKeyPress
+          end
+        end
+        object pnlBottoni: TPanel
+          Left = 0
+          Height = 131
+          Top = 262
+          Width = 2480
+          Align = alTop
+          BevelInner = bvLowered
+          BevelWidth = 2
+          ClientHeight = 131
+          ClientWidth = 2480
+          TabOrder = 2
+          object btnTimeMachine: TButton
+            Left = 16
+            Height = 100
+            Top = 16
+            Width = 450
+            Caption = 'Show ALL versions'
+            TabOrder = 0
+            OnClick = btnTimeMachineClick
+          end
+          object btnOpen: TButton
+            Left = 672
+            Height = 100
+            Top = 16
+            Width = 375
+            Caption = 'Select ZPAQ...'
+            TabOrder = 1
+            OnClick = btnOpenClick
+          end
+          object btnHelp: TButton
+            Left = 1496
+            Height = 100
+            Top = 16
+            Width = 100
+            Caption = '?'
+            TabOrder = 2
+            OnClick = btnHelpClick
+          end
+          object btnExit: TButton
+            Left = 1640
+            Height = 100
+            Top = 16
+            Width = 200
+            Caption = '&Exit'
+            TabOrder = 3
+            OnClick = btnExitClick
+          end
+        end
+        object lblLoadInfo: TLabel
+          Left = 60
+          Height = 1
+          Top = 475
+          Width = 1
+          Font.Color = clNavy
+          ParentColor = False
+          ParentFont = False
+        end
+        object lblFilterInfo: TLabel
+          Left = 1375
+          Height = 1
+          Top = 40
+          Width = 1
+          ParentColor = False
+        end
+        object lblFileCount: TLabel
+          Left = 1750
+          Height = 1
+          Top = 270
+          Width = 1
+          ParentColor = False
+        end
+      end
+      object pgrProgresso: TProgressBar
+        Left = 0
+        Height = 55
+        Top = 0
+        Width = 2480
+        Align = alTop
+        TabOrder = 2
+      end
+    end
+    object TabLog: TTabSheet
+      Caption = 'Log'
+      ClientHeight = 1610
+      ClientWidth = 2480
+      object pbHashProgress: TProgressBar
+        Left = 0
+        Height = 30
+        Top = 0
+        Width = 2480
+        Align = alTop
+        TabOrder = 1
+      end
+      object MemoLog: TMemo
+        Left = 0
+        Height = 1580
+        Top = 30
+        Width = 2480
+        Align = alClient
+        Font.Name = 'Consolas'
+        ParentFont = False
+        ReadOnly = True
+        ScrollBars = ssBoth
+        TabOrder = 0
+        WordWrap = False
+      end
+    end
+    object TabSettings: TTabSheet
+      Caption = 'Settings'
+      ClientHeight = 1610
+      ClientWidth = 2480
+      object gbFileAssoc: TGroupBox
+        Left = 50
+        Height = 450
+        Top = 50
+        Width = 1500
+        Caption = 'File Associations'
+        ClientHeight = 404
+        ClientWidth = 1496
+        TabOrder = 0
+        object btnAssociate: TButton
+          Left = 50
+          Height = 100
+          Top = 50
+          Width = 750
+          Caption = 'Associate .zpaq and .zpaq.franzen'
+          TabOrder = 0
+          OnClick = btnAssociateClick
+        end
+        object btnDisassociate: TButton
+          Left = 50
+          Height = 100
+          Top = 175
+          Width = 750
+          Caption = 'Remove file associations'
+          TabOrder = 1
+          OnClick = btnDisassociateClick
+        end
+        object lblAdminStatus: TLabel
+          Left = 850
+          Height = 1
+          Top = 75
+          Width = 1
+          ParentColor = False
+        end
+      end
+      object gbFont: TGroupBox
+        Left = 50
+        Height = 375
+        Top = 525
+        Width = 1500
+        Caption = 'Tree Font'
+        ClientHeight = 329
+        ClientWidth = 1496
+        TabOrder = 1
+        object btnChangeTreeFont: TButton
+          Left = 50
+          Height = 100
+          Top = 50
+          Width = 750
+          Caption = 'Change tree font...'
+          TabOrder = 0
+          OnClick = btnChangeTreeFontClick
+        end
+        object lblCurrentFont: TLabel
+          Left = 50
+          Height = 41
+          Top = 175
+          Width = 224
+          Caption = 'Current: (default)'
+          ParentColor = False
+        end
+      end
+      object gbLinks: TGroupBox
+        Left = 50
+        Height = 375
+        Top = 925
+        Width = 1500
+        Caption = 'Links and Updates'
+        ClientHeight = 329
+        ClientWidth = 1496
+        TabOrder = 2
+        object btnBrowseBuild: TButton
+          Left = 50
+          Height = 100
+          Top = 50
+          Width = 750
+          Caption = 'Browse Catpaq builds'
+          TabOrder = 0
+          OnClick = btnBrowseBuildClick
+        end
+        object btnInternetUpdate: TButton
+          Left = 50
+          Height = 100
+          Top = 175
+          Width = 750
+          Caption = 'Internet Update'
+          TabOrder = 1
+          OnClick = btnInternetUpdateClick
+        end
+      end
+      object gbZoom: TGroupBox
+        Left = 50
+        Height = 250
+        Top = 1325
+        Width = 1500
+        Caption = 'Interface Zoom'
+        ClientHeight = 204
+        ClientWidth = 1496
+        TabOrder = 3
+        object tbZoom: TTrackBar
+          Left = 50
+          Height = 100
+          Top = 25
+          Width = 1000
+          Max = 250
+          Min = 50
+          Position = 100
+          TickStyle = tsNone
+          OnChange = tbZoomChange
+          TabOrder = 0
+        end
+        object lblZoomValue: TLabel
+          Left = 1100
+          Height = 41
+          Top = 50
+          Width = 167
+          Caption = 'Zoom: 100%'
+          ParentColor = False
+        end
+      end
+      object gbLanguage: TGroupBox
+        Left = 50
+        Height = 250
+        Top = 1600
+        Width = 1500
+        Caption = 'Language'
+        ClientHeight = 204
+        ClientWidth = 1496
+        TabOrder = 4
+        object cbLanguage: TComboBox
+          Left = 50
+          Height = 49
+          Top = 50
+          Width = 750
+          ItemHeight = 41
+          Style = csDropDownList
+          TabOrder = 0
+          OnChange = cbLanguageChange
+        end
+      end
+    end
+  end
+  object OpenDialog1: TOpenDialog
+    Title = 'Open ZPAQ Archive'
+    Filter = 'ZPAQ archives (*.zpaq;*.zpaq.franzen)|*.zpaq;*.zpaq.franzen|All files (*.*)|*.*'
+    Left = 1750
+    Top = 50
+  end
+  object TimerUpdate: TTimer
+    Enabled = False
+    Interval = 200
+    OnTimer = TimerUpdateTimer
+    Left = 1850
+    Top = 50
+  end
+  object PopupMenu1: TPopupMenu
+    OnPopup = PopupMenu1Popup
+    Left = 1950
+    Top = 50
+    object mnuExtractFileGUI: TMenuItem
+      Caption = 'Extract file to folder (GUI)...'
+      OnClick = mnuExtractFileGUIClick
+    end
+    object mnuExtractFileText: TMenuItem
+      Caption = 'Extract file to folder (text)...'
+      OnClick = mnuExtractFileTextClick
+    end
+    object mnuSep1: TMenuItem
+      Caption = '-'
+    end
+    object mnuExtractFolderGUI: TMenuItem
+      Caption = 'Extract folder to... (GUI)'
+      OnClick = mnuExtractFolderGUIClick
+    end
+    object mnuExtractFolderText: TMenuItem
+      Caption = 'Extract folder to... (text)'
+      OnClick = mnuExtractFolderTextClick
+    end
+    object mnuSep5: TMenuItem
+      Caption = '-'
+    end
+    object mnuExtractAll: TMenuItem
+      Caption = 'Extract everything to...'
+      OnClick = mnuExtractAllClick
+    end
+    object mnuSep2: TMenuItem
+      Caption = '-'
+    end
+    object mnuCopyFileName: TMenuItem
+      Caption = 'Copy filename'
+      OnClick = mnuCopyFileNameClick
+    end
+    object mnuCopyFullPath: TMenuItem
+      Caption = 'Copy full path'
+      OnClick = mnuCopyFullPathClick
+    end
+    object mnuSep3: TMenuItem
+      Caption = '-'
+    end
+    object mnuExpandAll: TMenuItem
+      Caption = 'Expand all'
+      OnClick = mnuExpandAllClick
+    end
+    object mnuCollapseAll: TMenuItem
+      Caption = 'Collapse all'
+      OnClick = mnuCollapseAllClick
+    end
+    object mnuSep4: TMenuItem
+      Caption = '-'
+    end
+    object mnuHideFolder: TMenuItem
+      Caption = 'Hide selected folder'
+      ShortCut = 46
+      OnClick = mnuHideFolderClick
+    end
+    object mnuHideTree: TMenuItem
+      Caption = 'Hide selected tree'
+      ShortCut = 16430
+      OnClick = mnuHideTreeClick
+    end
+    object mnuShowAll: TMenuItem
+      Caption = 'Show everything'
+      OnClick = mnuShowAllClick
+    end
+  end
+  object SelectDirectoryDialog1: TSelectDirectoryDialog
+    Title = 'Select destination folder'
+    Left = 2050
+    Top = 50
+  end
+  object FontDialog1: TFontDialog
+    MinFontSize = 0
+    MaxFontSize = 0
+    Left = 2150
+    Top = 50
+  end
+  object PopupMenuAdd: TPopupMenu
+    OnPopup = PopupMenuAddPopup
+    Left = 2250
+    Top = 50
+    object mnuAddFilesToZpaq: TMenuItem
+      Caption = 'Add files to ZPAQ...'
+      OnClick = mnuAddFilesToZpaqClick
+    end
+    object mnuAddAllToZpaq: TMenuItem
+      Caption = 'Add all to ZPAQ'
+      ShortCut = 16449
+      OnClick = mnuAddAllToZpaqClick
+    end
+    object mnuAddSep1: TMenuItem
+      Caption = '-'
+    end
+    object mnuAddExtractToFolder: TMenuItem
+      Caption = 'Extract ZPAQ archive to...'
+      OnClick = mnuAddExtractToFolderClick
+    end
+    object mnuAddTestZpaq: TMenuItem
+      Caption = 'Test'
+      OnClick = mnuAddTestZpaqClick
+    end
+    object mnuAddTestAllZpaq: TMenuItem
+      Caption = 'Test all'
+      OnClick = mnuAddTestAllZpaqClick
+    end
+    object mnuAddSep1b: TMenuItem
+      Caption = '-'
+    end
+    object mnuAddOpen: TMenuItem
+      Caption = 'Open'
+      ShortCut = 13
+      OnClick = mnuAddOpenClick
+    end
+    object mnuAddOpenInExplorer: TMenuItem
+      Caption = 'Open in Explorer'
+      ShortCut = 8205
+      OnClick = mnuAddOpenInExplorerClick
+    end
+    object mnuAddSep2: TMenuItem
+      Caption = '-'
+    end
+    object mnuAddRename: TMenuItem
+      Caption = 'Rename'
+      ShortCut = 113
+      OnClick = mnuAddRenameClick
+    end
+    object mnuAddDelete: TMenuItem
+      Caption = 'Delete'
+      ShortCut = 46
+      OnClick = mnuAddDeleteClick
+    end
+    object mnuAddCreateFolder: TMenuItem
+      Caption = 'Create folder'
+      ShortCut = 118
+      OnClick = mnuAddCreateFolderClick
+    end
+    object mnuAddSep3: TMenuItem
+      Caption = '-'
+    end
+    object mnuAddProperties: TMenuItem
+      Caption = 'Properties'
+      ShortCut = 32781
+      OnClick = mnuAddPropertiesClick
+    end
+    object mnuAddSep4: TMenuItem
+      Caption = '-'
+    end
+    object mnuAddHash: TMenuItem
+      Caption = 'Hash'
+      object mnuHashCRC32: TMenuItem
+        Caption = 'CRC32'
+        OnClick = mnuHashClick
+      end
+      object mnuHashXXHash: TMenuItem
+        Caption = 'XXHash'
+        OnClick = mnuHashClick
+      end
+      object mnuHashSHA1: TMenuItem
+        Caption = 'SHA1'
+        OnClick = mnuHashClick
+      end
+      object mnuHashSHA256: TMenuItem
+        Caption = 'SHA256'
+        OnClick = mnuHashClick
+      end
+      object mnuHashXXH3: TMenuItem
+        Caption = 'XXH3'
+        OnClick = mnuHashClick
+      end
+      object mnuHashBLAKE3: TMenuItem
+        Caption = 'BLAKE3'
+        OnClick = mnuHashClick
+      end
+      object mnuHashSHA3: TMenuItem
+        Caption = 'SHA3'
+        OnClick = mnuHashClick
+      end
+      object mnuHashMD5: TMenuItem
+        Caption = 'MD5'
+        OnClick = mnuHashClick
+      end
+      object mnuHashWhirlpool: TMenuItem
+        Caption = 'Whirlpool'
+        OnClick = mnuHashClick
+      end
+      object mnuHashHighway64: TMenuItem
+        Caption = 'Highway64'
+        OnClick = mnuHashClick
+      end
+      object mnuHashHighway128: TMenuItem
+        Caption = 'Highway128'
+        OnClick = mnuHashClick
+      end
+      object mnuHashHighway256: TMenuItem
+        Caption = 'Highway256'
+        OnClick = mnuHashClick
+      end
+      object mnuHashWyhash: TMenuItem
+        Caption = 'Wyhash'
+        OnClick = mnuHashClick
+      end
+      object mnuHashNilsimsa: TMenuItem
+        Caption = 'Nilsimsa'
+        OnClick = mnuHashClick
+      end
+      object mnuHashEntropy: TMenuItem
+        Caption = 'Entropy'
+        OnClick = mnuHashClick
+      end
+      object mnuHashQuick: TMenuItem
+        Caption = 'Quick'
+        OnClick = mnuHashClick
+      end
+      object mnuHashZeta: TMenuItem
+        Caption = 'Zeta'
+        OnClick = mnuHashClick
+      end
+      object mnuHashFranzMulti: TMenuItem
+        Caption = 'Franzhash (multi)'
+        OnClick = mnuHashClick
+      end
+      object mnuHashFranzSingle: TMenuItem
+        Caption = 'Franzhash (single)'
+        OnClick = mnuHashClick
+      end
+    end
+  end
+  object popTest: TPopupMenu
+    Left = 833
+    Top = 109
+    object itmLastversion: TMenuItem
+      Caption = 'Last version'
+      OnClick = itmLastversionClick
+    end
+    object itmAll: TMenuItem
+      Caption = 'All versions'
+      OnClick = itmAllClick
+    end
+  end
+  object PopupMenuArchiveBrowse: TPopupMenu
+    OnPopup = PopupMenuArchiveBrowsePopup
+    Left = 2250
+    Top = 109
+    object mnuArchiveBack: TMenuItem
+      Caption = '← Back to filesystem'
+      OnClick = mnuArchiveBackClick
+    end
+    object mnuArchiveSep1: TMenuItem
+      Caption = '-'
+    end
+    object mnuArchiveExtract1: TMenuItem
+      Caption = 'Extract...'
+      OnClick = mnuArchiveExtract1Click
+    end
+    object mnuArchiveExtract2: TMenuItem
+      Caption = 'Test'
+      OnClick = mnuArchiveExtract2Click
+    end
+  end
+end

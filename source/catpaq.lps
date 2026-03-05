@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="12"/>
+    <BuildModes Active="Default"/>
+    <Units>
+      <Unit>
+        <Filename Value="catpaq.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="18"/>
+        <CursorPos X="9" Y="19"/>
+        <UsageCount Value="89"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="uzpaqbridge.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="6"/>
+        <UsageCount Value="89"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="ucatpaqtypes.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="121"/>
+        <CursorPos Y="162"/>
+        <UsageCount Value="89"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="ucatpaq_update.pas"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="5"/>
+        <TopLine Value="557"/>
+        <CursorPos X="10" Y="587"/>
+        <UsageCount Value="23"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="ufrmsimply.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmSimply"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <EditorIndex Value="1"/>
+        <TopLine Value="183"/>
+        <CursorPos X="20" Y="183"/>
+        <UsageCount Value="72"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="umain.pas"/>
+        <ComponentName Value="frmMain"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="497"/>
+        <CursorPos X="41" Y="530"/>
+        <UsageCount Value="22"/>
+      </Unit>
+      <Unit>
+        <Filename Value="C:\lazarus\lcl\include\control.inc"/>
+        <TopLine Value="6006"/>
+        <CursorPos X="27" Y="6054"/>
+        <UsageCount Value="41"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="ufrmmain.pas"/>
+        <ComponentName Value="frmMain"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="ufrmMain"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="3135"/>
+        <CursorPos X="70" Y="3135"/>
+        <UsageCount Value="39"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="ufrmmain_extract_patch.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="81"/>
+        <CursorPos X="10" Y="114"/>
+        <UsageCount Value="14"/>
+      </Unit>
+      <Unit>
+        <Filename Value="C:\lazarus\fpc\3.2.2\source\rtl\inc\dynlibs.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="2"/>
+        <CursorPos X="32" Y="7"/>
+        <UsageCount Value="13"/>
+      </Unit>
+      <Unit>
+        <Filename Value="ufrmsimply.lfm"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="568"/>
+        <CursorPos X="30" Y="575"/>
+        <UsageCount Value="7"/>
+        <DefaultSyntaxHighlighter Value="LFM"/>
+      </Unit>
+      <Unit>
+        <Filename Value="C:\lazarus\lcl\include\rasterimage.inc"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="422"/>
+        <CursorPos X="7" Y="458"/>
+        <UsageCount Value="7"/>
+      </Unit>
+      <Unit>
+        <Filename Value="showadddialog_patch.pas"/>
+        <EditorIndex Value="-1"/>
+        <UsageCount Value="9"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="29">
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1551" Column="5" TopLine="1518"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="434" Column="35" TopLine="425"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="447" Column="78" TopLine="440"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1350" Column="17" TopLine="1343"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1364" Column="23" TopLine="1348"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="447" Column="77" TopLine="437"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1343" Column="88" TopLine="1340"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1344" Column="89" TopLine="1344"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="453" Column="68" TopLine="451"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="454" Column="68" TopLine="452"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1553" Column="55" TopLine="1535"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1547" Column="50" TopLine="1535"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="468" Column="80" TopLine="449"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="457" Column="32" TopLine="440"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="458" Column="64" TopLine="450"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1379" Column="3" TopLine="1377"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1376" TopLine="1353"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="1584" Column="5" TopLine="1551"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="458" Column="66" TopLine="445"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="127" Column="54" TopLine="120"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="522" Column="110" TopLine="494"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmsimply.pas"/>
+        <Caret Line="381" TopLine="369"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmmain.pas"/>
+        <Caret Line="864" Column="3" TopLine="864"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmmain.pas"/>
+        <Caret Line="867" Column="21" TopLine="865"/>
+      </Position>
+      <Position>
+        <Filename Value="catpaq.lpr"/>
+        <Caret Line="39" Column="10" TopLine="17"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmmain.pas"/>
+        <Caret Line="867" Column="21" TopLine="867"/>
+      </Position>
+      <Position>
+        <Filename Value="ufrmmain.pas"/>
+        <Caret Line="240" Column="50" TopLine="221"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>
