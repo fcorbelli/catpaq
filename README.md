@@ -82,12 +82,14 @@ In the new releases of `zpaqfranz`, you can notice the management using the `DL`
 
 Catpaq is written in **Free Pascal / Lazarus**. To build it yourself:
 
-1. Install [Lazarus](https://www.lazarus-ide.org/) (tested with 4.x)
+1. Install [Lazarus](https://www.lazarus-ide.org/) (developed on version 4.4, FPC 3.2.2)
 2. Clone this repository
 3. Open `catpaq.lpr` in the Lazarus IDE
 4. Build → Compile
 
 Almost no external dependency 
+
+For updating hardcoded hashes you can use newcat.cpp https://github.com/fcorbelli/catpaq/blob/main/work/newcat.cpp
 
 ---
 
