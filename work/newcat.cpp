@@ -1,7 +1,7 @@
 /*
 	newcat.cpp - catpaq Build Tool
 	Part of catpaq, Franco Corbelli's zpaq GUI
-	build 1
+	build 8
 
 	MIT License
 	Copyright (c) 2026 Franco Corbelli
@@ -11,34 +11,33 @@
 	────────────────────────────────────────────────────────────
 	Automates the full release build cycle for catpaq:
 
-	  1. Reads <BuildNr Value="N"/> from catpaq.lpi and writes N+1
-		 back to the file before compiling.
-	  2. Computes SHA-256 hashes of zpaqfranz.dll and zpaqfranz.exe.
-	  3. Injects those hashes into ufrmmain.pas.
-	  4. Recompiles the Lazarus project via lazbuild.
-	  5. Strips debug symbols from the resulting executable.
-	  6. Writes version.txt (10 lines) ready for updates.
-	  7. Prints "Updated to build N" on success.
-
-	────────────────────────────────────────────────────────────
-	HOW TO USE
-	────────────────────────────────────────────────────────────
-	Compile (No external dependencies, compatible with old GCC):
-	  g++ -O3 -std=c++11 newcat.cpp -o newcat.exe
-
-	Run with defaults:
-	  newcat.exe
-	────────────────────────────────────────────────────────────
+	  1. Deletes any existing local version.txt.
+	  2. Reads <BuildNr Value="N"/> from catpaq.lpi.
+	  3. Prevents spurious builds: compares source code hashes
+	     and sizes with the latest release\N. If identical, ABORT.
+	  4. Writes N+1 back to the catpaq.lpi file.
+	  5. Computes SHA-256 hashes of zpaqfranz.dll and zpaqfranz.exe.
+	  6. Injects those hashes into ufrmmain.pas.
+	  7. Recompiles the Lazarus project via lazbuild.
+	  8. Strips debug symbols from the resulting executable.
+	  9. Writes version.txt to project dir and current dir.
+	 10. Non-recursively copies all files into release\N+1 for backup.
+	 11. Prints "Updated to build N" on success.
 */
 
 #ifdef _WIN32
 #include <windows.h>
+#include <direct.h>
+#else
+#include <dirent.h>
+#include <sys/types.h>
 #endif
 
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -78,145 +77,80 @@ const std::string EXE_HASH_MARKER_END  = "// @@EXE_HASH_END@@";
 
 namespace sha256
 {
-const uint32_t k[64]= {
-	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-	0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-	0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-	0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-	0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-	0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-	0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-	0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+	const uint32_t k[64]= {
+		0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+		0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+		0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+		0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+		0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+		0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+		0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+		0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
-inline uint32_t ror(uint32_t x, uint32_t n)
-{
-	return (x >> n) | (x << (32 - n));
-}
-inline uint32_t ch(uint32_t x, uint32_t y, uint32_t z)
-{
-	return (x & y) ^ (~x & z);
-}
-inline uint32_t maj(uint32_t x, uint32_t y, uint32_t z)
-{
-	return (x & y) ^ (x & z) ^ (y & z);
-}
-inline uint32_t ep0(uint32_t x)
-{
-	return ror(x, 2) ^ ror(x, 13) ^ ror(x, 22);
-}
-inline uint32_t ep1(uint32_t x)
-{
-	return ror(x, 6) ^ ror(x, 11) ^ ror(x, 25);
-}
-inline uint32_t sig0(uint32_t x)
-{
-	return ror(x, 7) ^ ror(x, 18) ^ (x >> 3);
-}
-inline uint32_t sig1(uint32_t x)
-{
-	return ror(x, 17) ^ ror(x, 19) ^ (x >> 10);
-}
+	inline uint32_t ror(uint32_t x, uint32_t n) { return (x >> n) | (x << (32 - n)); }
+	inline uint32_t ch(uint32_t x, uint32_t y, uint32_t z) { return (x & y) ^ (~x & z); }
+	inline uint32_t maj(uint32_t x, uint32_t y, uint32_t z) { return (x & y) ^ (x & z) ^ (y & z); }
+	inline uint32_t ep0(uint32_t x) { return ror(x, 2) ^ ror(x, 13) ^ ror(x, 22); }
+	inline uint32_t ep1(uint32_t x) { return ror(x, 6) ^ ror(x, 11) ^ ror(x, 25); }
+	inline uint32_t sig0(uint32_t x) { return ror(x, 7) ^ ror(x, 18) ^ (x >> 3); }
+	inline uint32_t sig1(uint32_t x) { return ror(x, 17) ^ ror(x, 19) ^ (x >> 10); }
 
-struct Context
-{
-	uint8_t	 data[64];
-	uint32_t datalen = 0;
-	uint64_t bitlen	 = 0;
-	uint32_t state[8]= {
-		0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-		0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
-};
+	struct Context {
+		uint8_t	 data[64];
+		uint32_t datalen = 0;
+		uint64_t bitlen	 = 0;
+		uint32_t state[8]= {
+			0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+			0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+	};
 
-void transform(Context &ctx, const uint8_t *data)
-{
-	uint32_t a= ctx.state[0], b= ctx.state[1], c= ctx.state[2], d= ctx.state[3];
-	uint32_t e= ctx.state[4], f= ctx.state[5], g= ctx.state[6], h= ctx.state[7];
-	uint32_t m[64];
-
-	for (int i= 0, j= 0; i < 16; ++i, j+= 4)
-		m[i]= (data[j] << 24) | (data[j + 1] << 16) | (data[j + 2] << 8) | data[j + 3];
-	for (int i= 16; i < 64; ++i)
-		m[i]= sig1(m[i - 2]) + m[i - 7] + sig0(m[i - 15]) + m[i - 16];
-
-	for (int i= 0; i < 64; ++i)
-	{
-		uint32_t t1= h + ep1(e) + ch(e, f, g) + k[i] + m[i];
-		uint32_t t2= ep0(a) + maj(a, b, c);
-		h		   = g;
-		g		   = f;
-		f		   = e;
-		e		   = d + t1;
-		d		   = c;
-		c		   = b;
-		b		   = a;
-		a		   = t1 + t2;
+	void transform(Context &ctx, const uint8_t *data) {
+		uint32_t a= ctx.state[0], b= ctx.state[1], c= ctx.state[2], d= ctx.state[3];
+		uint32_t e= ctx.state[4], f= ctx.state[5], g= ctx.state[6], h= ctx.state[7];
+		uint32_t m[64];
+		for (int i= 0, j= 0; i < 16; ++i, j+= 4) m[i]= (data[j] << 24) | (data[j + 1] << 16) | (data[j + 2] << 8) | data[j + 3];
+		for (int i= 16; i < 64; ++i) m[i]= sig1(m[i - 2]) + m[i - 7] + sig0(m[i - 15]) + m[i - 16];
+		for (int i= 0; i < 64; ++i) {
+			uint32_t t1= h + ep1(e) + ch(e, f, g) + k[i] + m[i];
+			uint32_t t2= ep0(a) + maj(a, b, c);
+			h= g; g= f; f= e; e= d + t1; d= c; c= b; b= a; a= t1 + t2;
+		}
+		ctx.state[0]+= a; ctx.state[1]+= b; ctx.state[2]+= c; ctx.state[3]+= d;
+		ctx.state[4]+= e; ctx.state[5]+= f; ctx.state[6]+= g; ctx.state[7]+= h;
 	}
 
-	ctx.state[0]+= a;
-	ctx.state[1]+= b;
-	ctx.state[2]+= c;
-	ctx.state[3]+= d;
-	ctx.state[4]+= e;
-	ctx.state[5]+= f;
-	ctx.state[6]+= g;
-	ctx.state[7]+= h;
-}
-
-void update(Context &ctx, const uint8_t *data, size_t len)
-{
-	for (size_t i= 0; i < len; ++i)
-	{
-		ctx.data[ctx.datalen++]= data[i];
-		if (ctx.datalen == 64)
-		{
-			transform(ctx, ctx.data);
-			ctx.bitlen+= 512;
-			ctx.datalen= 0;
+	void update(Context &ctx, const uint8_t *data, size_t len) {
+		for (size_t i= 0; i < len; ++i) {
+			ctx.data[ctx.datalen++]= data[i];
+			if (ctx.datalen == 64) {
+				transform(ctx, ctx.data); ctx.bitlen+= 512; ctx.datalen= 0;
+			}
 		}
 	}
-}
 
-void final(Context &ctx, uint8_t *hash)
-{
-	uint32_t i= ctx.datalen;
-	if (ctx.datalen < 56)
-	{
-		ctx.data[i++]= 0x80;
-		while (i < 56)
-			ctx.data[i++]= 0x00;
-	}
-	else
-	{
-		ctx.data[i++]= 0x80;
-		while (i < 64)
-			ctx.data[i++]= 0x00;
+	void final(Context &ctx, uint8_t *hash) {
+		uint32_t i= ctx.datalen;
+		if (ctx.datalen < 56) {
+			ctx.data[i++]= 0x80; while (i < 56) ctx.data[i++]= 0x00;
+		} else {
+			ctx.data[i++]= 0x80; while (i < 64) ctx.data[i++]= 0x00;
+			transform(ctx, ctx.data); std::memset(ctx.data, 0, 56);
+		}
+		ctx.bitlen+= ctx.datalen * 8;
+		ctx.data[63]= ctx.bitlen; ctx.data[62]= ctx.bitlen >> 8; ctx.data[61]= ctx.bitlen >> 16; ctx.data[60]= ctx.bitlen >> 24;
+		ctx.data[59]= ctx.bitlen >> 32; ctx.data[58]= ctx.bitlen >> 40; ctx.data[57]= ctx.bitlen >> 48; ctx.data[56]= ctx.bitlen >> 56;
 		transform(ctx, ctx.data);
-		std::memset(ctx.data, 0, 56);
+		for (i= 0; i < 4; ++i) {
+			hash[i]		= (ctx.state[0] >> (24 - i * 8)) & 0xff;
+			hash[i + 4] = (ctx.state[1] >> (24 - i * 8)) & 0xff;
+			hash[i + 8] = (ctx.state[2] >> (24 - i * 8)) & 0xff;
+			hash[i + 12]= (ctx.state[3] >> (24 - i * 8)) & 0xff;
+			hash[i + 16]= (ctx.state[4] >> (24 - i * 8)) & 0xff;
+			hash[i + 20]= (ctx.state[5] >> (24 - i * 8)) & 0xff;
+			hash[i + 24]= (ctx.state[6] >> (24 - i * 8)) & 0xff;
+			hash[i + 28]= (ctx.state[7] >> (24 - i * 8)) & 0xff;
+		}
 	}
-
-	ctx.bitlen+= ctx.datalen * 8;
-	ctx.data[63]= ctx.bitlen;
-	ctx.data[62]= ctx.bitlen >> 8;
-	ctx.data[61]= ctx.bitlen >> 16;
-	ctx.data[60]= ctx.bitlen >> 24;
-	ctx.data[59]= ctx.bitlen >> 32;
-	ctx.data[58]= ctx.bitlen >> 40;
-	ctx.data[57]= ctx.bitlen >> 48;
-	ctx.data[56]= ctx.bitlen >> 56;
-	transform(ctx, ctx.data);
-
-	for (i= 0; i < 4; ++i)
-	{
-		hash[i]		= (ctx.state[0] >> (24 - i * 8)) & 0xff;
-		hash[i + 4] = (ctx.state[1] >> (24 - i * 8)) & 0xff;
-		hash[i + 8] = (ctx.state[2] >> (24 - i * 8)) & 0xff;
-		hash[i + 12]= (ctx.state[3] >> (24 - i * 8)) & 0xff;
-		hash[i + 16]= (ctx.state[4] >> (24 - i * 8)) & 0xff;
-		hash[i + 20]= (ctx.state[5] >> (24 - i * 8)) & 0xff;
-		hash[i + 24]= (ctx.state[6] >> (24 - i * 8)) & 0xff;
-		hash[i + 28]= (ctx.state[7] >> (24 - i * 8)) & 0xff;
-	}
-}
 } // namespace sha256
 
 void PrintHelp(const char *progName)
@@ -232,8 +166,7 @@ void PrintHelp(const char *progName)
 
 std::string EnsureTrailingSlash(const std::string &path)
 {
-	if (path.empty())
-		return path;
+	if (path.empty()) return path;
 	char last= path.back();
 	if (last != '\\' && last != '/')
 #ifdef _WIN32
@@ -244,19 +177,93 @@ std::string EnsureTrailingSlash(const std::string &path)
 	return path;
 }
 
+bool EndsWith(const std::string &str, const std::string &suffix)
+{
+	if (str.length() < suffix.length()) return false;
+	return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+}
+
+// Returns true if the extension marks a file relevant for spurious-build detection.
+// .lpi and .res are intentionally excluded: they are generated/modified
+// automatically and carry no meaningful human source-change information.
+bool IsTrackedExtension(const std::string &filename)
+{
+	return EndsWith(filename, ".pas")
+		|| EndsWith(filename, ".lpr")
+		|| EndsWith(filename, ".lfm")
+		|| EndsWith(filename, ".inc")
+		|| EndsWith(filename, ".rc")
+		|| EndsWith(filename, ".ico")
+		|| filename == "zpaqfranz.exe"
+		|| filename == "zpaqfranz.dll";
+}
+
 bool FileExists(const std::string &filename)
 {
+#ifdef _WIN32
+	DWORD attr = GetFileAttributesA(filename.c_str());
+	return (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
+#else
 	struct stat buffer;
 	return (stat(filename.c_str(), &buffer) == 0 && (buffer.st_mode & S_IFREG));
+#endif
 }
 
 bool DirectoryExists(const std::string &path)
 {
+#ifdef _WIN32
+	std::string p = path;
+	while (!p.empty() && (p.back() == '\\' || p.back() == '/')) p.pop_back();
+	if (p.empty()) return false;
+	DWORD attr = GetFileAttributesA(p.c_str());
+	return (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY));
+#else
 	struct stat buffer;
 	std::string p= path;
-	while (!p.empty() && (p.back() == '\\' || p.back() == '/'))
-		p.pop_back();
-	return (stat(p.c_str(), &buffer) == 0 && (buffer.st_mode & S_IFDIR));
+	while (!p.empty() && (p.back() == '\\' || p.back() == '/')) p.pop_back();
+	if (stat(p.c_str(), &buffer) != 0) return false;
+	return ((buffer.st_mode & S_IFMT) == S_IFDIR);
+#endif
+}
+
+bool MakeDir(const std::string &path)
+{
+#ifdef _WIN32
+	int res = _mkdir(path.c_str());
+#else
+	int res = mkdir(path.c_str(), 0777);
+#endif
+	return (res == 0 || errno == EEXIST);
+}
+
+std::vector<std::string> GetFilesInDirectory(const std::string &directory)
+{
+	std::vector<std::string> files;
+	std::string dir = EnsureTrailingSlash(directory);
+
+#ifdef _WIN32
+	WIN32_FIND_DATAA findData;
+	HANDLE hFind = FindFirstFileA((dir + "*").c_str(), &findData);
+	if (hFind == INVALID_HANDLE_VALUE) return files;
+	do {
+		if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+			files.push_back(findData.cFileName);
+	} while (FindNextFileA(hFind, &findData));
+	FindClose(hFind);
+#else
+	DIR *dp = opendir(dir.c_str());
+	if (dp != nullptr) {
+		struct dirent *ep;
+		while ((ep = readdir(dp)) != nullptr) {
+			if (std::strcmp(ep->d_name, ".") == 0 || std::strcmp(ep->d_name, "..") == 0) continue;
+			std::string fullPath = dir + ep->d_name;
+			if (FileExists(fullPath))
+				files.push_back(ep->d_name);
+		}
+		closedir(dp);
+	}
+#endif
+	return files;
 }
 
 long long GetFileSizeBytes(const std::string &filename)
@@ -265,19 +272,94 @@ long long GetFileSizeBytes(const std::string &filename)
 	return (stat(filename.c_str(), &buffer) == 0) ? buffer.st_size : 0;
 }
 
+std::string ComputeSHA256(const std::string &filename)
+{
+	std::ifstream file(filename, std::ios::binary);
+	if (!file) return "";
+
+	sha256::Context ctx;
+	char buf[4096];
+
+	while (file.read(buf, sizeof(buf)) || file.gcount() > 0)
+		sha256::update(ctx, reinterpret_cast<const uint8_t *>(buf), file.gcount());
+
+	uint8_t hash[32];
+	sha256::final(ctx, hash);
+
+	std::stringstream ss;
+	for (int i= 0; i < 32; ++i) ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+	return ss.str();
+}
+
+bool IsSpuriousBuild(const std::string &workDir, const std::string &lastReleaseDir)
+{
+	if (!DirectoryExists(lastReleaseDir))
+	{
+		std::cout << "  No previous release folder found. Proceeding.\n";
+		return false;
+	}
+
+	std::string wDir = EnsureTrailingSlash(workDir);
+	std::string rDir = EnsureTrailingSlash(lastReleaseDir);
+
+	std::vector<std::string> workFiles = GetFilesInDirectory(workDir);
+	for (const std::string &file : workFiles)
+	{
+		if (!IsTrackedExtension(file)) continue;
+
+		std::string releaseFile = rDir + file;
+		std::string workFile = wDir + file;
+
+		if (!FileExists(releaseFile))
+		{
+			std::cout << "  New file detected: " << file << "\n";
+			return false;
+		}
+
+		long long sizeWork = GetFileSizeBytes(workFile);
+		long long sizeRel = GetFileSizeBytes(releaseFile);
+		
+		if (sizeWork != sizeRel)
+		{
+			std::cout << "  Changed file detected (size differs): " << file << "\n";
+			return false;
+		}
+
+		if (ComputeSHA256(workFile) != ComputeSHA256(releaseFile))
+		{
+			std::cout << "  Changed file detected (hash differs): " << file << "\n";
+			return false;
+		}
+	}
+
+	std::vector<std::string> releaseFiles = GetFilesInDirectory(lastReleaseDir);
+	for (const std::string &file : releaseFiles)
+	{
+		if (!IsTrackedExtension(file)) continue;
+
+		if (!FileExists(wDir + file))
+		{
+			std::cout << "  Deleted file detected: " << file << "\n";
+			return false;
+		}
+	}
+
+	return true;
+}
+
 std::string GetFileDateTime(const std::string &filename)
 {
 	struct stat result;
 	if (stat(filename.c_str(), &result) == 0)
 	{
-		std::tm			 *tm= std::localtime(&result.st_mtime);
+		std::tm		     *tm= std::localtime(&result.st_mtime);
 		std::stringstream ss;
 		ss << std::setfill('0')
-		   << std::setw(2) << tm->tm_mday << "/"
-		   << std::setw(2) << tm->tm_mon + 1 << "/"
-		   << tm->tm_year + 1900 << " "
-		   << std::setw(2) << tm->tm_hour << ":"
-		   << std::setw(2) << tm->tm_min << ":"
+		   << std::setw(2) << tm->tm_mday     << "/"
+		   << std::setw(2) << tm->tm_mon + 1  << "/"
+		   << tm->tm_year + 1900               << " "
+		   << std::setw(2) << tm->tm_hour      << ":"
+		   << std::setw(2) << tm->tm_min       << ":"
 		   << std::setw(2) << tm->tm_sec;
 		return ss.str();
 	}
@@ -289,7 +371,6 @@ bool RunProcess(const std::string &cmdLine, const std::string &workingDir, const
 	std::cout << "  Running: " << cmdLine << "\n";
 
 #ifdef _WIN32
-	// Windows API for fine-grained process control
 	STARTUPINFOA		si;
 	PROCESS_INFORMATION pi;
 	ZeroMemory(&si, sizeof(si));
@@ -320,16 +401,9 @@ bool RunProcess(const std::string &cmdLine, const std::string &workingDir, const
 		return false;
 	}
 #else
-	// POSIX fallback using system()
 	std::string fullCmd= cmdLine;
-	if (!workingDir.empty())
-	{
-		// Change dir then run command
-		fullCmd= "cd \"" + workingDir + "\" && " + cmdLine;
-	}
-
+	if (!workingDir.empty()) fullCmd= "cd \"" + workingDir + "\" && " + cmdLine;
 	int exitCode= std::system(fullCmd.c_str());
-
 	if (exitCode != 0)
 	{
 		std::cerr << "ERROR: " << label << " failed with exit code " << exitCode << "\n";
@@ -344,8 +418,7 @@ bool RunProcess(const std::string &cmdLine, const std::string &workingDir, const
 std::string ReadFileToString(const std::string &filename)
 {
 	std::ifstream file(filename, std::ios::binary);
-	if (!file)
-		return "";
+	if (!file) return "";
 	std::stringstream buffer;
 	buffer << file.rdbuf();
 	return buffer.str();
@@ -354,37 +427,18 @@ std::string ReadFileToString(const std::string &filename)
 bool WriteStringToFile(const std::string &filename, const std::string &content)
 {
 	std::ofstream file(filename, std::ios::binary);
-	if (!file)
-		return false;
+	if (!file) return false;
 	file << content;
 	return true;
 }
 
-std::string ComputeSHA256(const std::string &filename)
+bool CopySingleFile(const std::string &src, const std::string &dst)
 {
-	std::ifstream file(filename, std::ios::binary);
-	if (!file)
-	{
-		std::cerr << "ERROR: Cannot open file for hashing: " << filename << "\n";
-		return "";
-	}
-
-	sha256::Context ctx;
-	char			buf[4096];
-
-	while (file.read(buf, sizeof(buf)) || file.gcount() > 0)
-	{
-		sha256::update(ctx, reinterpret_cast<const uint8_t *>(buf), file.gcount());
-	}
-
-	uint8_t hash[32];
-	sha256::final(ctx, hash);
-
-	std::stringstream ss;
-	for (int i= 0; i < 32; ++i)
-		ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
-
-	return ss.str();
+	std::ifstream srcFile(src, std::ios::binary);
+	std::ofstream dstFile(dst, std::ios::binary);
+	if (!srcFile || !dstFile) return false;
+	dstFile << srcFile.rdbuf();
+	return true;
 }
 
 bool PreFlightChecks()
@@ -392,27 +446,17 @@ bool PreFlightChecks()
 	bool ok		 = true;
 	auto checkDir= [&](const std::string &lbl, const std::string &p)
 	{
-		if (DirectoryExists(p))
-			std::cout << "  [OK]      " << lbl << ": " << p << "\n";
-		else
-		{
-			std::cerr << "  [MISSING] " << lbl << ": " << p << "\n";
-			ok= false;
-		}
+		if (DirectoryExists(p)) std::cout << "  [OK]      " << lbl << ": " << p << "\n";
+		else { std::cerr << "  [MISSING] " << lbl << ": " << p << "\n"; ok= false; }
 	};
 	auto checkFile= [&](const std::string &lbl, const std::string &p)
 	{
-		if (FileExists(p))
-			std::cout << "  [OK]      " << lbl << ": " << p << "\n";
-		else
-		{
-			std::cerr << "  [MISSING] " << lbl << ": " << p << "\n";
-			ok= false;
-		}
+		if (FileExists(p)) std::cout << "  [OK]      " << lbl << ": " << p << "\n";
+		else { std::cerr << "  [MISSING] " << lbl << ": " << p << "\n"; ok= false; }
 	};
 
 	std::cout << "Pre-flight checks:\n";
-	checkDir("catpaq folder", catpaq_PATH);
+	checkDir ("catpaq folder",       catpaq_PATH);
 	checkFile("lazbuild executable", LAZBUILD_PATH);
 
 	if (FileExists(STRIP_PATH))
@@ -420,84 +464,71 @@ bool PreFlightChecks()
 	else
 		std::cout << "  [WARN]    strip: " << STRIP_PATH << " not found directly (will rely on PATH)\n";
 
-	checkFile("catpaq.lpi", PROJECT_FILE);
-	checkFile("ufrmmain.pas", SOURCE_FILE);
+	checkFile("catpaq.lpi",    PROJECT_FILE);
+	checkFile("ufrmmain.pas",  SOURCE_FILE);
 	checkFile("zpaqfranz.exe", ZPAQFRANZ_EXE);
 	checkFile("zpaqfranz.dll", ZPAQFRANZ_DLL);
-
-	if (FileExists(EXE_FILE))
-		std::cout << "  [OK]      catpaq.exe (existing): " << EXE_FILE << "\n";
-	else
-		std::cout << "  [INFO]    catpaq.exe not present yet (will be created by build)\n";
 
 	std::cout << "\n";
 	return ok;
 }
 
-int IncrementLpiBuildNumber(const std::string &lpiFile)
+int ReadLpiBuildNumber(const std::string &lpiFile)
 {
 	std::string content= ReadFileToString(lpiFile);
-	if (content.empty())
-		return 0;
+	if (content.empty()) return 0;
 
 	const std::string TAG_OPEN = "<BuildNr Value=\"";
 	const std::string TAG_CLOSE= "\"/>";
-
 	size_t startPos= content.find(TAG_OPEN);
-	if (startPos == std::string::npos)
-		return 0;
-
+	if (startPos == std::string::npos) return 0;
 	size_t valueStart= startPos + TAG_OPEN.size();
 	size_t valueEnd	 = content.find(TAG_CLOSE, valueStart);
-	if (valueEnd == std::string::npos)
-		return 0;
+	if (valueEnd == std::string::npos) return 0;
 
 	std::string oldValueStr= content.substr(valueStart, valueEnd - valueStart);
-	for (char c : oldValueStr)
-	{
-		if (!std::isdigit((unsigned char)c))
-			return 0;
-	}
+	for (char c : oldValueStr) { if (!std::isdigit((unsigned char)c)) return 0; }
 
-	int oldBuild= std::stoi(oldValueStr);
-	int newBuild= oldBuild + 1;
+	return std::stoi(oldValueStr);
+}
+
+bool WriteLpiBuildNumber(const std::string &lpiFile, int newBuild)
+{
+	std::string content= ReadFileToString(lpiFile);
+	if (content.empty()) return false;
+
+	const std::string TAG_OPEN = "<BuildNr Value=\"";
+	const std::string TAG_CLOSE= "\"/>";
+	size_t startPos= content.find(TAG_OPEN);
+	if (startPos == std::string::npos) return false;
+	size_t valueStart= startPos + TAG_OPEN.size();
+	size_t valueEnd	 = content.find(TAG_CLOSE, valueStart);
+	if (valueEnd == std::string::npos) return false;
 
 	content.replace(valueStart, valueEnd - valueStart, std::to_string(newBuild));
-
-	if (!WriteStringToFile(lpiFile, content))
-		return 0;
-
-	std::cout << "  BuildNr: " << oldBuild << " -> " << newBuild << "\n";
-	return newBuild;
+	return WriteStringToFile(lpiFile, content);
 }
 
 bool InjectHashesIntoSource(const std::string &sourceFile, const std::string &dllHash, const std::string &exeHash)
 {
 	std::string content= ReadFileToString(sourceFile);
-	if (content.empty())
-		return false;
+	if (content.empty()) return false;
 
-	auto replaceSection= [](std::string &text, const std::string &startMarker,
-							const std::string &endMarker, const std::string &varName,
-							const std::string &hashValue) -> bool
+	auto replaceSection= [](std::string &text, const std::string &startMarker, const std::string &endMarker, const std::string &varName, const std::string &hashValue) -> bool
 	{
 		size_t startPos= text.find(startMarker);
 		size_t endPos  = text.find(endMarker);
-		if (startPos == std::string::npos || endPos == std::string::npos || endPos <= startPos)
-			return false;
+		if (startPos == std::string::npos || endPos == std::string::npos || endPos <= startPos) return false;
 
 		std::string newSection= startMarker + "\n  " + varName + " = '" + hashValue + "';\n  ";
-		text				  = text.substr(0, startPos) + newSection + text.substr(endPos);
+		text = text.substr(0, startPos) + newSection + text.substr(endPos);
 		return true;
 	};
 
-	if (!replaceSection(content, DLL_HASH_MARKER_START, DLL_HASH_MARKER_END, "EXPECTED_DLL_HASH", dllHash))
-		return false;
-	if (!replaceSection(content, EXE_HASH_MARKER_START, EXE_HASH_MARKER_END, "EXPECTED_EXE_HASH", exeHash))
-		return false;
+	if (!replaceSection(content, DLL_HASH_MARKER_START, DLL_HASH_MARKER_END, "EXPECTED_DLL_HASH", dllHash)) return false;
+	if (!replaceSection(content, EXE_HASH_MARKER_START, EXE_HASH_MARKER_END, "EXPECTED_EXE_HASH", exeHash)) return false;
 
-	if (!WriteStringToFile(sourceFile, content))
-		return false;
+	if (!WriteStringToFile(sourceFile, content)) return false;
 
 	std::cout << "  Hashes injected into " << sourceFile << "\n";
 	return true;
@@ -505,6 +536,8 @@ bool InjectHashesIntoSource(const std::string &sourceFile, const std::string &dl
 
 int main(int argc, char *argv[])
 {
+	std::remove(OUTPUT_FILE.c_str());
+
 	std::string arg_catpaq_path	 = DEFAULT_catpaq_PATH;
 	std::string arg_lazbuild_path= DEFAULT_LAZBUILD_PATH;
 	std::string arg_strip_path	 = DEFAULT_STRIP_PATH;
@@ -517,12 +550,9 @@ int main(int argc, char *argv[])
 			PrintHelp(argv[0]);
 			return 0;
 		}
-		else if (a == "-p" && i + 1 < argc)
-			arg_catpaq_path= argv[++i];
-		else if (a == "-l" && i + 1 < argc)
-			arg_lazbuild_path= argv[++i];
-		else if (a == "-s" && i + 1 < argc)
-			arg_strip_path= argv[++i];
+		else if (a == "-p" && i + 1 < argc) arg_catpaq_path= argv[++i];
+		else if (a == "-l" && i + 1 < argc) arg_lazbuild_path= argv[++i];
+		else if (a == "-s" && i + 1 < argc) arg_strip_path= argv[++i];
 		else
 		{
 			std::cerr << "ERROR: Unknown argument: " << a << "\nUse -h for help.\n";
@@ -545,82 +575,138 @@ int main(int argc, char *argv[])
 	std::cout << "  lazbuild    : " << LAZBUILD_PATH << "\n";
 	std::cout << "  strip       : " << STRIP_PATH << "\n\n";
 
-	if (!PreFlightChecks())
-		return 1;
+	if (!PreFlightChecks()) return 1;
 
-	std::cout << "Step 1: Incrementing build number in catpaq.lpi...\n";
-	int newBuild= IncrementLpiBuildNumber(PROJECT_FILE);
-	if (newBuild == 0)
+	std::cout << "Step 1: Checking build number and preventing spurious builds...\n";
+	int oldBuild = ReadLpiBuildNumber(PROJECT_FILE);
+	if (oldBuild == 0)
+	{
+		std::cerr << "ERROR: Could not read valid build number from " << PROJECT_FILE << "\n";
 		return 1;
+	}
+
+	std::string releaseBase    = catpaq_PATH + "release";
+#ifdef _WIN32
+	std::string lastReleaseDir = releaseBase + "\\" + std::to_string(oldBuild);
+#else
+	std::string lastReleaseDir = releaseBase + "/" + std::to_string(oldBuild);
+#endif
+
+	if (IsSpuriousBuild(catpaq_PATH, lastReleaseDir))
+	{
+		std::cerr << "\n*** ERRORE FATALE ***\n";
+		std::cerr << "Nessuna modifica rilevata nei sorgenti rispetto alla build " << oldBuild << ".\n";
+		std::cerr << "Il processo e' stato interrotto per evitare la creazione di una build inutile (spuria).\n";
+		return 1;
+	}
+
+	int newBuild = oldBuild + 1;
+#ifdef _WIN32
+	std::string releaseDir = releaseBase + "\\" + std::to_string(newBuild);
+#else
+	std::string releaseDir = releaseBase + "/" + std::to_string(newBuild);
+#endif
+
+	if (DirectoryExists(releaseDir))
+	{
+		std::cerr << "ERROR: Release folder already exists: " << releaseDir << "\n";
+		std::cerr << "       Remove it manually if you want to rebuild this version.\n";
+		return 1;
+	}
+
+	std::cout << "  BuildNr: " << oldBuild << " -> " << newBuild << "\n";
+	std::cout << "  Release folder will be: " << releaseDir << "\n";
+
+	if (!WriteLpiBuildNumber(PROJECT_FILE, newBuild))
+	{
+		std::cerr << "ERROR: Failed to update build number in LPI.\n";
+		return 1;
+	}
 
 	std::cout << "\nStep 2: Computing SHA256 hashes...\n";
 	std::string dllHash= ComputeSHA256(ZPAQFRANZ_DLL);
-	if (dllHash.empty())
-		return 1;
+	if (dllHash.empty()) return 1;
 	std::cout << "  zpaqfranz.dll: " << dllHash << "\n";
 
 	std::string exeHash= ComputeSHA256(ZPAQFRANZ_EXE);
-	if (exeHash.empty())
-		return 1;
+	if (exeHash.empty()) return 1;
 	std::cout << "  zpaqfranz.exe: " << exeHash << "\n";
 
 	std::cout << "\nStep 3: Injecting hashes into ufrmmain.pas...\n";
-	if (!InjectHashesIntoSource(SOURCE_FILE, dllHash, exeHash))
-		return 1;
+	if (!InjectHashesIntoSource(SOURCE_FILE, dllHash, exeHash)) return 1;
 
 	std::cout << "\nStep 4: Recompiling project...\n";
 	std::string cmdLineBuild= "\"" + LAZBUILD_PATH + "\" \"" + PROJECT_FILE + "\"";
-	if (!RunProcess(cmdLineBuild, catpaq_PATH, "lazbuild"))
-		return 1;
+	if (!RunProcess(cmdLineBuild, catpaq_PATH, "lazbuild")) return 1;
 
 	std::cout << "\nStep 5: Stripping executable...\n";
 	std::string cmdLineStrip= "\"" + STRIP_PATH + "\" \"" + EXE_FILE + "\"";
-	if (!RunProcess(cmdLineStrip, "", "strip"))
-		return 1;
+	if (!RunProcess(cmdLineStrip, "", "strip")) return 1;
 
 	std::cout << "\nStep 6: Creating " << OUTPUT_FILE << "...\n";
-	std::string datetime_exe= GetFileDateTime(EXE_FILE);
-	std::string hash_exe	= ComputeSHA256(EXE_FILE);
-	long long	size_exe	= GetFileSizeBytes(EXE_FILE);
-
+	std::string datetime_exe          = GetFileDateTime(EXE_FILE);
+	std::string hash_exe              = ComputeSHA256(EXE_FILE);
+	long long   size_exe              = GetFileSizeBytes(EXE_FILE);
 	std::string datetime_zpaqfranz_exe= GetFileDateTime(ZPAQFRANZ_EXE);
-	long long	size_zpaqfranz_exe	  = GetFileSizeBytes(ZPAQFRANZ_EXE);
-
+	long long   size_zpaqfranz_exe    = GetFileSizeBytes(ZPAQFRANZ_EXE);
 	std::string datetime_zpaqfranz_dll= GetFileDateTime(ZPAQFRANZ_DLL);
-	long long	size_zpaqfranz_dll	  = GetFileSizeBytes(ZPAQFRANZ_DLL);
+	long long   size_zpaqfranz_dll    = GetFileSizeBytes(ZPAQFRANZ_DLL);
 
 	if (datetime_exe.empty() || hash_exe.empty() || size_exe == 0 ||
 		datetime_zpaqfranz_exe.empty() || size_zpaqfranz_exe == 0 ||
 		datetime_zpaqfranz_dll.empty() || size_zpaqfranz_dll == 0)
 	{
-		std::cerr << "ERROR: Cannot gather file information for version.txt\n\n";
+		std::cerr << "ERROR: Cannot gather file information for version.txt\n";
 		return 1;
 	}
 
-	std::ofstream out(OUTPUT_FILE);
-	if (!out)
-		return 1;
+	std::string versionOutputFull = catpaq_PATH + OUTPUT_FILE;
+	std::ofstream out(versionOutputFull);
+	if (!out) return 1;
 
 	out << newBuild << "\n";
-	out << datetime_exe << "\n"
-		<< hash_exe << "\n"
-		<< size_exe << "\n";
-	out << datetime_zpaqfranz_exe << "\n"
-		<< exeHash << "\n"
-		<< size_zpaqfranz_exe << "\n";
-	out << datetime_zpaqfranz_dll << "\n"
-		<< dllHash << "\n"
-		<< size_zpaqfranz_dll << "\n";
+	out << datetime_exe << "\n" << hash_exe << "\n" << size_exe << "\n";
+	out << datetime_zpaqfranz_exe << "\n" << exeHash << "\n" << size_zpaqfranz_exe << "\n";
+	out << datetime_zpaqfranz_dll << "\n" << dllHash << "\n" << size_zpaqfranz_dll << "\n";
 	out.close();
+	std::cout << "  " << versionOutputFull << " written.\n";
 
-	std::cout << "  " << OUTPUT_FILE << " written.\n\n";
+	if (CopySingleFile(versionOutputFull, OUTPUT_FILE))
+	{
+		std::cout << "  " << OUTPUT_FILE << " copied to current directory.\n";
+	}
 
-	std::cout << "BUILD COMPLETE\n";
-	std::cout << "  catpaq.exe   : " << hash_exe << " (" << size_exe << " bytes)\n";
-	std::cout << "  zpaqfranz.exe: " << exeHash << " (" << size_zpaqfranz_exe << " bytes)\n";
-	std::cout << "  zpaqfranz.dll: " << dllHash << " (" << size_zpaqfranz_dll << " bytes)\n\n";
+	std::cout << "\nStep 7: Archiving release to " << releaseDir << "...\n";
+	MakeDir(releaseBase);
+	if (!MakeDir(releaseDir))
+	{
+		std::cerr << "ERROR: Cannot create release folder: " << releaseDir << "\n";
+		return 1;
+	}
 
-	std::cout << "Updated to build " << newBuild << "\n";
+	std::string releaseDirSlashed = EnsureTrailingSlash(releaseDir);
+	std::vector<std::string> filesToCopy = GetFilesInDirectory(catpaq_PATH);
+	int copiedCount = 0;
+	for (const std::string &file : filesToCopy)
+	{
+		std::string src = catpaq_PATH + file;
+		std::string dst = releaseDirSlashed + file;
+		if (CopySingleFile(src, dst))
+		{
+			copiedCount++;
+		}
+		else
+		{
+			std::cerr << "  WARNING: Failed to copy " << file << "\n";
+		}
+	}
+	std::cout << "  Successfully copied " << copiedCount << " files into " << releaseDir << ".\n";
+
+	std::cout << "\nBUILD COMPLETE\n";
+	std::cout << "  catpaq.exe   : " << hash_exe << " (" << size_exe           << " bytes)\n";
+	std::cout << "  zpaqfranz.exe: " << exeHash  << " (" << size_zpaqfranz_exe << " bytes)\n";
+	std::cout << "  zpaqfranz.dll: " << dllHash  << " (" << size_zpaqfranz_dll << " bytes)\n\n";
+	std::cout << "Updated to build " << newBuild << " and saved in " << releaseDir << "\n";
 
 	return 0;
 }
