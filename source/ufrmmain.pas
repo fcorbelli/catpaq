@@ -1,3 +1,4 @@
+
 unit ufrmMain;
 
 {$mode objfpc}{$H+}
@@ -32,11 +33,11 @@ const
 
   // SHA256 hash atteso dell'eseguibile - AGGIORNATO AUTOMATICAMENTE da aggiorna.exe
   // @@DLL_HASH_START@@
-  EXPECTED_DLL_HASH = '3e713fbad6cec09c0d161ea30cc89e7dd0401495a9fead72ae2394cb74278907';
+  EXPECTED_DLL_HASH = '769d8c97f5e6aad84f45847649e1a0e36da681dc325f4cc55a44de194935ef1f';
   // @@DLL_HASH_END@@
   
   // @@EXE_HASH_START@@
-  EXPECTED_EXE_HASH = 'a5c1d54d833fe6089487d2d95ffeb5f429c6bfb9b6a3e89cca1a234558bcc604';
+  EXPECTED_EXE_HASH = 'abb6f62b9727dd7aac23f6765795c7357ddcce75b8bdef5c7b29d337e0f4b2d5';
   // @@EXE_HASH_END@@
 
 var
@@ -67,12 +68,12 @@ type
 
   { TfrmMain }
   TfrmMain = class(TForm)
+    btnExit2: TButton;
+    btnHelp1: TButton;
     btnAssociate: TButton;
     btnBrowseBuild: TButton;
     btnChangeTreeFont: TButton;
     btnDisassociate: TButton;
-    btnExit: TButton;
-    btnHelp: TButton;
     btnInternetUpdate: TButton;
     btnOpen: TButton;
     btnTimeMachine: TButton;
@@ -189,7 +190,8 @@ type
     mnuArchiveExtract1: TMenuItem;
     mnuArchiveExtract2: TMenuItem;
 
-    procedure btnExitClick(Sender: TObject);
+    procedure btnExit2Click(Sender: TObject);
+    procedure btnHelp1Click(Sender: TObject);
     procedure btnHelpClick(Sender: TObject);
     procedure btnOpenClick(Sender: TObject);
     procedure btnTimeMachineClick(Sender: TObject);
@@ -203,6 +205,9 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormShow(Sender: TObject);
+    procedure FormResize(Sender: TObject);
+    procedure OnTimerSave(Sender: TObject);
+    procedure OnTimerRestore(Sender: TObject);
     procedure itmAllClick(Sender: TObject);
     procedure itmLastversionClick(Sender: TObject);
     procedure mnuExtractFileGUIClick(Sender: TObject);
@@ -305,6 +310,26 @@ type
 
     FTimerStartup: TTimer;
     FApplyDefaultSize: Boolean; // True = nessun INI trovato, ridimensiona in FormShow
+    FFormReady:        Boolean; // True dopo il restore iniziale: abilita salvataggio
+    FTimerSave:        TTimer;  // polling 2s: salva se posizione/colonne cambiate
+    FTimerRestore:     TTimer;  // one-shot 150ms: applica geometria INI dopo FormShow
+    // Geometria finestra letta dall'INI, da applicare via FTimerRestore
+    FRestoredLeft:   Integer;
+    FRestoredTop:    Integer;
+    FRestoredWidth:  Integer;
+    FRestoredHeight: Integer;
+    // Snapshot dell'ultimo stato salvato (per rilevare cambiamenti)
+    FLastSavedLeft:   Integer;
+    FLastSavedTop:    Integer;
+    FLastSavedWidth:  Integer;
+    FLastSavedHeight: Integer;
+    // Snapshot larghezze colonne per rilevare cambiamenti
+    FLastColWidthsLv:  array[0..7] of Integer;
+    FLastColWidthsVst: array[0..7] of Integer;
+    // Larghezze lette dall'INI: riapplicate in OnTimerRestore dopo SetBounds
+    // (LCL le riscala quando la form si ridimensiona, quindi vanno riapplicate dopo)
+    FSavedColWidthsLv:  array[0..7] of Integer;
+    FSavedColWidthsVst: array[0..7] of Integer;
 
     // --- State Management ---
     FBridgeOp: string; // 'LIST' or 'HASH' or 'TEST'
@@ -573,7 +598,8 @@ begin
   FVstSortColumn := -1;
   FVstSortAscending := True;
   FApplyDefaultSize := False;
-  FIniPath := ChangeFileExt(Application.ExeName, '.ini');
+  FIniPath := GetCatpaqIniPath;
+  AddLog('INI path: ' + FIniPath);
   FZoomPercent := ZOOM_DEFAULT;
   FLang := TStringList.Create;
   FLangName := 'english';
@@ -634,6 +660,39 @@ begin
   Constraints.MinWidth := MIN_FORM_WIDTH;
   Constraints.MinHeight := MIN_FORM_HEIGHT;
 
+  // Inizializza tutti i campi e timer PRIMA di LoadSettingsFromIni
+  // (LoadSettings popola FRestoredWidth/Height/Left/Top che il timer usa)
+  FFormReady      := False;
+  FRestoredLeft   := -1;
+  FRestoredTop    := -1;
+  FRestoredWidth  := 0;
+  FRestoredHeight := 0;
+  FLastSavedLeft   := -1;
+  FLastSavedTop    := -1;
+  FLastSavedWidth  := 0;
+  FLastSavedHeight := 0;
+  FillChar(FLastColWidthsLv,  SizeOf(FLastColWidthsLv),  0);
+  FillChar(FLastColWidthsVst, SizeOf(FLastColWidthsVst), 0);
+  FillChar(FSavedColWidthsLv,  SizeOf(FSavedColWidthsLv),  0);
+  FillChar(FSavedColWidthsVst, SizeOf(FSavedColWidthsVst), 0);
+
+  FTimerStartup := TTimer.Create(Self);
+  FTimerStartup.Interval := 250;
+  FTimerStartup.Enabled := False;
+  FTimerStartup.OnTimer := @OnTimerStartup;
+
+  FTimerSave := TTimer.Create(Self);
+  FTimerSave.Interval := 2000;
+  FTimerSave.Enabled := False;
+  FTimerSave.OnTimer := @OnTimerSave;
+
+  // 800ms: abbastanza lungo da aspettare che LCL finisca di
+  // ridimensionare i controlli dopo che la form diventa visibile
+  FTimerRestore := TTimer.Create(Self);
+  FTimerRestore.Interval := 800;
+  FTimerRestore.Enabled := False;
+  FTimerRestore.OnTimer := @OnTimerRestore;
+
   LoadSettingsFromIni;
   ScanLanguages;
 
@@ -648,11 +707,6 @@ begin
     lblAdminStatus.Caption := S('lbl_admin_no', 'Not admin (elevated rights required)');
     lblAdminStatus.Font.Color := clRed;
   end;
-
-  FTimerStartup := TTimer.Create(Self);
-  FTimerStartup.Interval := 250;
-  FTimerStartup.Enabled := False;
-  FTimerStartup.OnTimer := @OnTimerStartup;
 
   InitAddTab;
 
@@ -679,7 +733,29 @@ end;
 
 procedure TfrmMain.FormShow(Sender: TObject);
 begin
-  // Applica dimensione default 8/10 schermo qui, dove Screen è già affidabile
+  if Assigned(FTimerStartup) then
+    FTimerStartup.Enabled := True;
+
+  // Timer one-shot (150ms): applica geometria INI o default dopo che
+  // il window manager ha stabilizzato la finestra
+  FTimerRestore.Enabled := True;
+  OnResize       := @FormResize;
+  OnChangeBounds := @FormResize;
+end;
+
+procedure TfrmMain.FormResize(Sender: TObject);
+begin
+  // Ignorato prima che FFormReady sia True (durante init/restore iniziale)
+  if not FFormReady then Exit;
+  // Nessun debounce: il polling di FTimerSave rileverà il cambiamento al prossimo tick
+end;
+
+procedure TfrmMain.OnTimerRestore(Sender: TObject);
+var
+  Wd, Ht, L, T, I: Integer;
+begin
+  FTimerRestore.Enabled := False; // one-shot
+
   if FApplyDefaultSize then
   begin
     FApplyDefaultSize := False;
@@ -687,10 +763,127 @@ begin
     Height := Screen.WorkAreaHeight * 8 div 10;
     Left   := Screen.WorkAreaLeft + (Screen.WorkAreaWidth  - Width)  div 2;
     Top    := Screen.WorkAreaTop  + (Screen.WorkAreaHeight - Height) div 2;
-  end;
+    AddLog('OnTimerRestore: applico dimensione default → L=' + IntToStr(Left) +
+           ' T=' + IntToStr(Top) + ' W=' + IntToStr(Width) + ' H=' + IntToStr(Height));
+    if lvAddFiles.Columns.Count >= 6 then
+    begin
+      lvAddFiles.Columns[0].Width := lvAddFiles.ClientWidth * 40 div 100;
+      lvAddFiles.Columns[1].Width := lvAddFiles.ClientWidth * 12 div 100;
+      lvAddFiles.Columns[2].Width := lvAddFiles.ClientWidth * 18 div 100;
+      lvAddFiles.Columns[3].Width := lvAddFiles.ClientWidth * 18 div 100;
+      lvAddFiles.Columns[4].Width := lvAddFiles.ClientWidth *  6 div 100;
+      lvAddFiles.Columns[5].Width := lvAddFiles.ClientWidth *  6 div 100;
+    end;
+    AddLog('OnTimerRestore: applico dimensione lista (proporzionale)');
+    AddLog('Settings: first run, default layout applied.');
+  end
+  else if FRestoredWidth > 0 then
+  begin
+    Wd := FRestoredWidth;
+    Ht := FRestoredHeight;
+    L  := FRestoredLeft;
+    T  := FRestoredTop;
+    if Wd > Screen.WorkAreaWidth  then Wd := Screen.WorkAreaWidth;
+    if Ht > Screen.WorkAreaHeight then Ht := Screen.WorkAreaHeight;
+    if L < Screen.WorkAreaLeft then L := Screen.WorkAreaLeft;
+    if T < Screen.WorkAreaTop  then T := Screen.WorkAreaTop;
+    if L + Wd > Screen.WorkAreaLeft + Screen.WorkAreaWidth  then
+      L := Max(Screen.WorkAreaLeft, Screen.WorkAreaLeft + Screen.WorkAreaWidth  - Wd);
+    if T + Ht > Screen.WorkAreaTop  + Screen.WorkAreaHeight then
+      T := Max(Screen.WorkAreaTop, Screen.WorkAreaTop + Screen.WorkAreaHeight - Ht);
+    AddLog('OnTimerRestore: applico dimensione/posizione form → SetBounds(' +
+           IntToStr(L) + ',' + IntToStr(T) + ',' + IntToStr(Wd) + ',' + IntToStr(Ht) + ')');
+    SetBounds(L, T, Wd, Ht);
+    AddLog('OnTimerRestore: dopo SetBounds → L=' + IntToStr(Left) +
+           ' T=' + IntToStr(Top) + ' W=' + IntToStr(Width) + ' H=' + IntToStr(Height));
 
-  if Assigned(FTimerStartup) then
-    FTimerStartup.Enabled := True;
+    // Riapplica le larghezze colonne DOPO SetBounds usando i per-mille salvati:
+    // converte per-mille → pixel con la ClientWidth attuale (post-resize)
+    AddLog('OnTimerRestore: riapplico larghezze colonne lista (ClientWidth=' +
+           IntToStr(lvAddFiles.ClientWidth) + ')');
+    for I := 0 to Min(High(FSavedColWidthsLv), lvAddFiles.Columns.Count - 1) do
+      if FSavedColWidthsLv[I] > 0 then
+      begin
+        lvAddFiles.Columns[I].Width := FSavedColWidthsLv[I] * lvAddFiles.ClientWidth div 1000;
+        AddLog('  lista col[' + IntToStr(I) + '] ' + IntToStr(FSavedColWidthsLv[I]) +
+               'o/oo → ' + IntToStr(lvAddFiles.Columns[I].Width) + 'px');
+      end;
+    AddLog('OnTimerRestore: riapplico larghezze colonne VST');
+    for I := 0 to Min(High(FSavedColWidthsVst), VST.Header.Columns.Count - 1) do
+      if FSavedColWidthsVst[I] > 0 then
+        VST.Header.Columns[I].Width := FSavedColWidthsVst[I];
+  end
+  else
+    AddLog('OnTimerRestore: nessuna geometria da applicare (FRestoredWidth=0)');
+
+  // Scatta snapshot iniziale (base per rilevare cambiamenti futuri)
+  FLastSavedLeft   := Left;
+  FLastSavedTop    := Top;
+  FLastSavedWidth  := Width;
+  FLastSavedHeight := Height;
+  for I := 0 to Min(High(FLastColWidthsLv),  lvAddFiles.Columns.Count - 1) do
+    FLastColWidthsLv[I]  := lvAddFiles.Columns[I].Width;
+  for I := 0 to Min(High(FLastColWidthsVst), VST.Header.Columns.Count - 1) do
+    FLastColWidthsVst[I] := VST.Header.Columns[I].Width;
+
+  AddLog('OnTimerRestore: snapshot iniziale L=' + IntToStr(Left) +
+         ' T=' + IntToStr(Top) + ' W=' + IntToStr(Width) + ' H=' + IntToStr(Height));
+  for I := 0 to lvAddFiles.Columns.Count - 1 do
+    AddLog('  lista col[' + IntToStr(I) + ']=' + IntToStr(lvAddFiles.Columns[I].Width));
+
+  FFormReady := True;
+  FTimerSave.Enabled := True;
+  AddLog('OnTimerRestore: done. Polling attivo.');
+end;
+
+procedure TfrmMain.OnTimerSave(Sender: TObject);
+var
+  I: Integer;
+  NeedSave: Boolean;
+begin
+  if not FFormReady then Exit;
+
+  NeedSave := False;
+
+  // Posizione e dimensione finestra
+  if WindowState = wsNormal then
+    if (Left <> FLastSavedLeft) or (Top <> FLastSavedTop) or
+       (Width <> FLastSavedWidth) or (Height <> FLastSavedHeight) then
+      NeedSave := True;
+
+  // Larghezze colonne lvAddFiles
+  if not NeedSave then
+    for I := 0 to Min(High(FLastColWidthsLv), lvAddFiles.Columns.Count - 1) do
+      if lvAddFiles.Columns[I].Width <> FLastColWidthsLv[I] then
+      begin
+        NeedSave := True;
+        Break;
+      end;
+
+  // Larghezze colonne VST
+  if not NeedSave then
+    for I := 0 to Min(High(FLastColWidthsVst), VST.Header.Columns.Count - 1) do
+      if VST.Header.Columns[I].Width <> FLastColWidthsVst[I] then
+      begin
+        NeedSave := True;
+        Break;
+      end;
+
+  if NeedSave then
+  begin
+    // Aggiorna snapshot
+    FLastSavedLeft   := Left;
+    FLastSavedTop    := Top;
+    FLastSavedWidth  := Width;
+    FLastSavedHeight := Height;
+    for I := 0 to Min(High(FLastColWidthsLv),  lvAddFiles.Columns.Count - 1) do
+      FLastColWidthsLv[I]  := lvAddFiles.Columns[I].Width;
+    for I := 0 to Min(High(FLastColWidthsVst), VST.Header.Columns.Count - 1) do
+      FLastColWidthsVst[I] := VST.Header.Columns[I].Width;
+
+    SaveSettingsToIni;
+    AddLog('Settings saved (position/size/columns).');
+  end;
 end;
 
 
@@ -736,8 +929,12 @@ end;
 
 function TfrmMain.ExecuteStartupChecks: Boolean;
 var
-  ExeFound, DllFound: Boolean;
-  ExePath, DllPath: string;
+  ExeFound: Boolean;
+  ExePath: string;
+  {$IFDEF WINDOWS}
+  DllFound: Boolean;
+  DllPath: string;
+  {$ENDIF}
 begin
   Result := False; // pessimistico: True solo se tutto OK alla fine
 
@@ -747,30 +944,26 @@ begin
   Application.ProcessMessages;
 
   ExeFound := False;
-  DllFound  := False;
 
-  // --- Determina i path attesi ---
+  // --- Determina i path attesi (platform-specific) ---
   {$IFDEF WINDOWS}
   ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.exe';
   DllPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
+  DllFound := False;
   {$ELSE}
-  {$IFDEF DARWIN}
+  // macOS e Linux: solo l'eseguibile zpaqfranz è richiesto (niente DLL)
   ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz';
-  DllPath := ExtractFilePath(ParamStr(0)) + 'libzpaqfranz.dylib';
-  {$ELSE}
-  ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz';
-  DllPath := ExtractFilePath(ParamStr(0)) + 'libzpaqfranz.so';
-  {$ENDIF}
   {$ENDIF}
 
-  // --- Controlla presenza fisica dei due file ---
+  // --- Controlla presenza fisica dei file ---
   ExeFound := FileExists(ExePath);
-  DllFound  := FileExists(DllPath);
-
   AddLog('EXE present: ' + BoolToStr(ExeFound, 'YES', 'NO') + '  [' + ExePath + ']');
-  AddLog('DLL present: ' + BoolToStr(DllFound,  'YES', 'NO') + '  [' + DllPath + ']');
 
-  // --- Entrambi i file sono OBBLIGATORI ---
+  {$IFDEF WINDOWS}
+  DllFound := FileExists(DllPath);
+  AddLog('DLL present: ' + BoolToStr(DllFound, 'YES', 'NO') + '  [' + DllPath + ']');
+
+  // Su Windows ENTRAMBI i file sono obbligatori
   if not ExeFound or not DllFound then
   begin
     if not ExeFound and not DllFound then
@@ -810,7 +1003,6 @@ begin
 
     if TryDownloadDLL then
     begin
-      // Ricontrolla presenza dopo download
       ExeFound := FileExists(ExePath);
       DllFound  := FileExists(DllPath);
       AddLog('After download - EXE: ' + BoolToStr(ExeFound, 'YES', 'NO') +
@@ -820,52 +1012,51 @@ begin
       begin
         AddLog('ERROR: Download incomplete. Open disabled.');
         btnOpen.Enabled := False;
-        Exit; // Result = False
+        Exit;
       end;
-      // Valida hash dei file appena scaricati
       if not ValidateEXE then
       begin
         AddLog('FATAL: Downloaded EXE validation failed.');
         btnOpen.Enabled := False;
-        Exit; // Result = False
+        Exit;
       end;
       if not ValidateDLL then
       begin
         AddLog('FATAL: Downloaded DLL validation failed.');
         btnOpen.Enabled := False;
-        Exit; // Result = False
+        Exit;
       end;
     end
     else
     begin
       AddLog('Download cancelled or failed. Open disabled.');
       btnOpen.Enabled := False;
-      Exit; // Result = False
+      Exit;
     end;
   end
   else
   begin
-    // --- Entrambi presenti: valida hash ---
+    // Entrambi presenti su Windows: valida hash
     if not ValidateEXE then
     begin
       AddLog('FATAL: EXE hash validation failed. Blocking open.');
       btnOpen.Enabled := False;
-      Exit; // Result = False
+      Exit;
     end;
     if not ValidateDLL then
     begin
       AddLog('FATAL: DLL hash validation failed. Blocking open.');
       btnOpen.Enabled := False;
-      Exit; // Result = False
+      Exit;
     end;
   end;
 
-  // --- Carica il bridge (richiede ENTRAMBI i file) ---
+  // --- Windows: carica il bridge (richiede ENTRAMBI i file) ---
   if FBridge.LoadDLL then
   begin
     AddLog('Bridge loaded: ' + FBridge.DLLPath);
     btnOpen.Enabled := True;
-    Result := True; // tutto OK → vai al filesystem senza mostrare il log
+    Result := True;
   end
   else
   begin
@@ -873,16 +1064,51 @@ begin
     AddLog('Make sure BOTH zpaqfranz.exe AND zpaqfranz.dll are in: ' +
            ExtractFilePath(ParamStr(0)));
     btnOpen.Enabled := False;
-    // Result resta False → OnTimerStartup mostrerà il log
   end;
+
+  {$ELSE}
+  // --- macOS / Linux: solo zpaqfranz è necessario ---
+  if not ExeFound then
+  begin
+    AddLog('WARNING: zpaqfranz executable not found.');
+    MessageDlg('Missing file',
+      'zpaqfranz is missing.' + sLineBreak +
+      'The application requires the zpaqfranz executable.' + sLineBreak + sLineBreak +
+      'Expected location: ' + ExePath + sLineBreak + sLineBreak +
+      'Please download zpaqfranz for your platform and place it' + sLineBreak +
+      'in the same folder as catpaq.',
+      mtWarning, [mbOK], 0);
+    btnOpen.Enabled := False;
+    Exit;
+  end;
+
+  // EXE trovato: carica il bridge (solo EXE, niente DLL)
+  // NOTA: la validazione SHA256 di zpaqfranz è disabilitata su macOS/Linux
+  // (l'utente procura l'eseguibile autonomamente per la propria piattaforma)
+  if FBridge.LoadDLL then
+  begin
+    AddLog('Bridge loaded (EXE mode): ' + FBridge.DLLPath);
+    btnOpen.Enabled := True;
+    Result := True;
+  end
+  else
+  begin
+    AddLog('ERROR: Could not load zpaqfranz executable. Open disabled.');
+    AddLog('Make sure zpaqfranz is in: ' + ExtractFilePath(ParamStr(0)));
+    btnOpen.Enabled := False;
+  end;
+  {$ENDIF}
 end;
 
 function TfrmMain.ValidateEXE: Boolean;
+{$IFDEF WINDOWS}
 var
   ExePath, ActualHash: string;
+{$ENDIF}
 begin
   Result := True;
 
+  {$IFDEF WINDOWS}
   // Modalità sviluppo: hash placeholder → skip
   if EXPECTED_EXE_HASH = '0000000000000000000000000000000000000000000000000000000000000000' then
   begin
@@ -890,11 +1116,7 @@ begin
     Exit;
   end;
 
-  {$IFDEF WINDOWS}
   ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.exe';
-  {$ELSE}
-  ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz';
-  {$ENDIF}
 
   // File assente: non è compito di questo metodo segnalarlo (lo fa ExecuteStartupChecks)
   if not FileExists(ExePath) then Exit;
@@ -927,13 +1149,24 @@ begin
   end
   else
     AddLog('EXE validation: PASSED');
+  {$ELSE}
+  // macOS / Linux: nessuna validazione hash sull'eseguibile zpaqfranz
+  // (l'utente lo procura autonomamente per la propria piattaforma)
+  AddLog('EXE validation: SKIPPED (not required on this platform)');
+  {$ENDIF}
 end;
 
 function TfrmMain.ValidateDLL: Boolean;
+{$IFDEF WINDOWS}
 var
   DLLPath, ActualHash: string;
+{$ENDIF}
 begin
   Result := True;
+
+  {$IFDEF WINDOWS}
+  // Su macOS/Linux non esiste la DLL: la validazione viene saltata
+  // e l'unico controllo è ValidateEXE (zpaqfranz).
 
   // Modalità sviluppo: hash placeholder → skip
   if EXPECTED_DLL_HASH = '0000000000000000000000000000000000000000000000000000000000000000' then
@@ -942,15 +1175,7 @@ begin
     Exit;
   end;
 
-  {$IFDEF WINDOWS}
   DLLPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
-  {$ELSE}
-  {$IFDEF DARWIN}
-  DLLPath := ExtractFilePath(ParamStr(0)) + 'libzpaqfranz.dylib';
-  {$ELSE}
-  DLLPath := ExtractFilePath(ParamStr(0)) + 'libzpaqfranz.so';
-  {$ENDIF}
-  {$ENDIF}
 
   // File assente: non è compito di questo metodo segnalarlo
   if not FileExists(DLLPath) then Exit;
@@ -983,9 +1208,13 @@ begin
   end
   else
     AddLog('DLL validation: PASSED');
+  {$ELSE}
+  AddLog('DLL validation: SKIPPED (not required on this platform)');
+  {$ENDIF}
 end;
 
 function TfrmMain.TryDownloadDLL: Boolean;
+{$IFDEF WINDOWS}
 var
   Checker:          TUpdateChecker;
   UpdateInfo:       TUpdateInfo;
@@ -1033,9 +1262,7 @@ begin
 
     Application.ProcessMessages;
 
-    // =====================================================
     // --- Scarica zpaqfranz.exe ---
-    // =====================================================
     AddLog('Downloading zpaqfranz.exe (' +
            IntToStr(UpdateInfo.EXEInfo.FileSize div 1024) + ' KB)...');
     if not Checker.DownloadFile_Public(ExeData) then
@@ -1056,9 +1283,7 @@ begin
       Exit;
     end;
 
-    // =====================================================
     // --- Scarica zpaqfranz.dll ---
-    // =====================================================
     AddLog('Downloading zpaqfranz.dll (' +
            IntToStr(UpdateInfo.DLLInfo.FileSize div 1024) + ' KB)...');
     if not Checker.DownloadDLLFile(DllData) then
@@ -1079,16 +1304,9 @@ begin
       Exit;
     end;
 
-    // =====================================================
     // --- Salva entrambi su disco ---
-    // =====================================================
-    {$IFDEF WINDOWS}
     ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.exe';
     DllPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
-    {$ELSE}
-    ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz';
-    DllPath := ExtractFilePath(ParamStr(0)) + 'libzpaqfranz.so';
-    {$ENDIF}
 
     try
       AddLog('Saving zpaqfranz.exe to ' + ExePath);
@@ -1102,10 +1320,6 @@ begin
       try
         if Length(DllData) > 0 then FS.Write(DllData[0], Length(DllData));
       finally FS.Free; end;
-
-      {$IFNDEF WINDOWS}
-      FpChmod(ExePath, &755);
-      {$ENDIF}
 
       AddLog('Both files saved successfully.');
       Result := True;
@@ -1126,6 +1340,22 @@ begin
     pgrProgresso.Visible    := False;
   end;
 end;
+{$ELSE}
+// Su macOS e Linux il download automatico non è disponibile.
+// L'utente deve procurarsi zpaqfranz per la propria piattaforma manualmente.
+begin
+  Result := False;
+  AddLog('TryDownloadDLL: automatic download not available on this platform.');
+  MessageDlg('zpaqfranz not found',
+    'The zpaqfranz executable is required but was not found.' + sLineBreak + sLineBreak +
+    'Please download zpaqfranz for your platform from:' + sLineBreak +
+    'https://github.com/fcorbelli/zpaqfranz' + sLineBreak + sLineBreak +
+    'Place the zpaqfranz executable in the same folder as catpaq:' + sLineBreak +
+    ExtractFilePath(ParamStr(0)) + sLineBreak + sLineBreak +
+    'Make sure it is executable (chmod +x zpaqfranz).',
+    mtInformation, [mbOK], 0);
+end;
+{$ENDIF}
 
 procedure TfrmMain.LoadArchiveFromCommandLine(const AFileName: string);
 begin
@@ -1136,8 +1366,6 @@ end;
 
 procedure TfrmMain.LoadSettingsFromIni;
 const
-  // Dimensioni minime ragionevoli per considerare valido un valore salvato in INI
-  // (più restrittive di MIN_FORM_WIDTH/HEIGHT che sono i vincoli hard dei Constraints)
   SANE_MIN_W = 400;
   SANE_MIN_H = 300;
 var
@@ -1149,10 +1377,11 @@ begin
   FBaseFontSize := VST.Font.Size;
   FApplyDefaultSize := False;
 
+  AddLog('--- LoadSettings: INI=' + FIniPath);
+
   if not FileExists(FIniPath) then
   begin
-    // Nessun INI: imposta il flag, la dimensione verrà applicata in FormShow
-    // quando Screen avrà le dimensioni definitive
+    AddLog('LoadSettings: file not found → first run, default layout');
     FApplyDefaultSize := True;
     Position := poScreenCenter;
     UpdateFontLabel;
@@ -1162,8 +1391,10 @@ begin
 
   Ini := TIniFile.Create(FIniPath);
   try
+    // --- Font VST ---
     FontName := Ini.ReadString('TreeFont', 'Name', '');
     FontSize := Ini.ReadInteger('TreeFont', 'Size', 0);
+    AddLog('LoadSettings: TreeFont=' + FontName + ' size=' + IntToStr(FontSize));
     if (FontName <> '') and (FontSize > 0) then
     begin
       VST.Font.Name        := FontName;
@@ -1173,61 +1404,68 @@ begin
       FBaseFont     := FontName;
       FBaseFontSize := FontSize;
     end;
+
+    // --- Colonne VST ---
     for I := 0 to VST.Header.Columns.Count - 1 do
     begin
       W := Ini.ReadInteger('Columns', 'Width' + IntToStr(I), -1);
-      if W > 0 then VST.Header.Columns[I].Width := W;
+      if W > 0 then
+      begin
+        VST.Header.Columns[I].Width := W;
+        if I <= High(FSavedColWidthsVst) then FSavedColWidthsVst[I] := W;
+      end;
     end;
-    // --- Font del file list (lvAddFiles) ---
+    AddLog('LoadSettings: carico dati form (VST columns done)');
+
+    // --- Font lvAddFiles ---
     FontName := Ini.ReadString('ListFont', 'Name', '');
     FontSize := Ini.ReadInteger('ListFont', 'Size', 0);
+    AddLog('LoadSettings: ListFont=' + FontName + ' size=' + IntToStr(FontSize));
     if (FontName <> '') and (FontSize > 0) then
     begin
       lvAddFiles.Font.Name := FontName;
       lvAddFiles.Font.Size := FontSize;
     end;
-    // --- Larghezze colonne lvAddFiles ---
+
+    // --- Colonne lvAddFiles ---
+    // I valori in INI sono per-mille della ClientWidth (salvati così per essere
+    // immuni a DPI/scaling). Vengono applicati in pixel in OnTimerRestore,
+    // quando la form ha già la sua dimensione definitiva.
     for I := 0 to lvAddFiles.Columns.Count - 1 do
     begin
       W := Ini.ReadInteger('ListColumns', 'Width' + IntToStr(I), -1);
-      if W > 0 then lvAddFiles.Columns[I].Width := W;
+      AddLog('LoadSettings: carico dati lista col[' + IntToStr(I) + ']=' + IntToStr(W) + 'o/oo');
+      if (W > 0) and (I <= High(FSavedColWidthsLv)) then
+        FSavedColWidthsLv[I] := W;  // per-mille, applicato dopo in OnTimerRestore
     end;
 
-    // --- Posizione e dimensione finestra ---
+    // --- Geometria finestra ---
     L  := Ini.ReadInteger('Window', 'Left',   -1);
     T  := Ini.ReadInteger('Window', 'Top',    -1);
     Wd := Ini.ReadInteger('Window', 'Width',   0);
     Ht := Ini.ReadInteger('Window', 'Height',  0);
+    AddLog('LoadSettings: raw Window L=' + IntToStr(L) + ' T=' + IntToStr(T) +
+           ' W=' + IntToStr(Wd) + ' H=' + IntToStr(Ht));
 
     if (Wd >= SANE_MIN_W) and (Ht >= SANE_MIN_H) then
     begin
-      // Clamp dimensioni all'area di lavoro (esclude taskbar Windows 11)
-      if Wd > Screen.WorkAreaWidth  then Wd := Screen.WorkAreaWidth;
-      if Ht > Screen.WorkAreaHeight then Ht := Screen.WorkAreaHeight;
-      // Clamp posizione: non uscire fuori dall'area di lavoro
-      if L < Screen.WorkAreaLeft then L := Screen.WorkAreaLeft;
-      if T < Screen.WorkAreaTop  then T := Screen.WorkAreaTop;
-      if L + Wd > Screen.WorkAreaLeft + Screen.WorkAreaWidth  then
-        L := Max(Screen.WorkAreaLeft, Screen.WorkAreaLeft + Screen.WorkAreaWidth  - Wd);
-      if T + Ht > Screen.WorkAreaTop  + Screen.WorkAreaHeight then
-        T := Max(Screen.WorkAreaTop,  Screen.WorkAreaTop  + Screen.WorkAreaHeight - Ht);
-      Position := poDesigned;
-      Left   := L;
-      Top    := T;
-      Width  := Wd;
-      Height := Ht;
+      FRestoredLeft   := L;
+      FRestoredTop    := T;
+      FRestoredWidth  := Wd;
+      FRestoredHeight := Ht;
+      AddLog('LoadSettings: geometria valida → sarà applicata in OnTimerRestore');
     end
     else
     begin
-      // Valore INI non ragionevole (es. prima scrittura con dimensioni 0):
-      // usa default 8/10 schermo applicato in FormShow
+      AddLog('LoadSettings: geometria NON valida (W=' + IntToStr(Wd) +
+             ' H=' + IntToStr(Ht) + ') → default layout');
       FApplyDefaultSize := True;
       Position := poScreenCenter;
     end;
 
     Zoom := Ini.ReadInteger('Zoom', 'Percent', ZOOM_DEFAULT);
     if (Zoom < ZOOM_MIN) or (Zoom > ZOOM_MAX) then Zoom := ZOOM_DEFAULT;
-    FZoomPercent   := Zoom;
+    FZoomPercent    := Zoom;
     tbZoom.Position := Zoom;
     ApplyZoom(Zoom);
     LN := Ini.ReadString('Language', 'Name', 'english');
@@ -1237,6 +1475,7 @@ begin
   end;
   UpdateFontLabel;
   UpdateZoomLabel;
+  AddLog('LoadSettings: done');
 end;
 
 procedure TfrmMain.SaveSettingsToIni;
@@ -1245,18 +1484,27 @@ var
   I: Integer;
 begin
   try
+    AddLog('SaveSettings → ' + FIniPath);
     Ini := TIniFile.Create(FIniPath);
     try
       Ini.WriteString('TreeFont', 'Name', FBaseFont);
       Ini.WriteInteger('TreeFont', 'Size', FBaseFontSize);
-      for I := 0 to VST.Header.Columns.Count - 1 do
-        Ini.WriteInteger('Columns', 'Width' + IntToStr(I), VST.Header.Columns[I].Width);
       // --- Font del file list ---
       Ini.WriteString('ListFont', 'Name', lvAddFiles.Font.Name);
       Ini.WriteInteger('ListFont', 'Size', lvAddFiles.Font.Size);
       // --- Larghezze colonne lvAddFiles ---
-      for I := 0 to lvAddFiles.Columns.Count - 1 do
-        Ini.WriteInteger('ListColumns', 'Width' + IntToStr(I), lvAddFiles.Columns[I].Width);
+      // Salviamo come per-mille della ClientWidth: immune a DPI/scaling macOS.
+      // Al caricamento verranno riconvertite in pixel con la ClientWidth del momento.
+      if lvAddFiles.ClientWidth > 0 then
+        for I := 0 to lvAddFiles.Columns.Count - 1 do
+          Ini.WriteInteger('ListColumns', 'Width' + IntToStr(I),
+            lvAddFiles.Columns[I].Width * 1000 div lvAddFiles.ClientWidth)
+      else
+        for I := 0 to lvAddFiles.Columns.Count - 1 do
+          Ini.WriteInteger('ListColumns', 'Width' + IntToStr(I), lvAddFiles.Columns[I].Width);
+      // --- Larghezze colonne VST (pixel assoluti, applicate dopo SetBounds) ---
+      for I := 0 to VST.Header.Columns.Count - 1 do
+        Ini.WriteInteger('Columns', 'Width' + IntToStr(I), VST.Header.Columns[I].Width);
       if WindowState = wsNormal then
       begin
         Ini.WriteInteger('Window', 'Left', Left);
@@ -1351,8 +1599,6 @@ begin
 
   pnlBottoni.Font.Size := TabFontSize;
   btnOpen.Height := Round(75 * ScaleFactor);
-  btnExit.Height := Round(75 * ScaleFactor);
-  btnHelp.Height := Round(75 * ScaleFactor);
   btnTimeMachine.Height := Round(75 * ScaleFactor);
 
   SetMargin := Round(20 * ScaleFactor);
@@ -1367,7 +1613,8 @@ begin
 
   CurrentY := SetMargin;
 
-  gbFileAssoc.Top := CurrentY; gbFileAssoc.Left := SetMargin; gbFileAssoc.Width := TabSettings.ClientWidth - (SetMargin * 2);
+  gbFileAssoc.Top := CurrentY; gbFileAssoc.Left := SetMargin;
+ /// gbFileAssoc.Width := tabsettings.width;
     btnAssociate.Top := SetGap; btnAssociate.Left := SetGap; btnAssociate.Height := SetBtnH; btnAssociate.Width := gbFileAssoc.ClientWidth - (SetGap * 2);
     btnDisassociate.Top := btnAssociate.Top + SetBtnH + SetGap; btnDisassociate.Left := SetGap; btnDisassociate.Height := SetBtnH; btnDisassociate.Width := btnAssociate.Width;
     lblAdminStatus.Top := btnDisassociate.Top + SetBtnH + SetGap; lblAdminStatus.Left := SetGap;
@@ -1764,11 +2011,7 @@ end;
 
 procedure TfrmMain.PanelBottomResize(Sender: TObject);
 begin
-  btnExit.Left := TPanel(Sender).Width - btnExit.Width - 4;
-  btnHelp.Left := btnExit.Left - btnHelp.Width - 4;
-  btnHelp.Top := btnExit.Top;
-  btnOpen.Left := btnHelp.Left - btnOpen.Width - 4;
-  btnTimeMachine.Width := btnOpen.Left - btnTimeMachine.Left - 4;
+  btnTimeMachine.Width := tpanel(sender).width- btnTimeMachine.Left - 4;
 end;
 
 { === Archive loading === }
@@ -1779,11 +2022,10 @@ begin
   if OpenDialog1.Execute then DoLoadArchive(OpenDialog1.FileName);
 end;
 
-procedure TfrmMain.btnExitClick(Sender: TObject);
-begin Close; end;
-
-procedure TfrmMain.btnHelpClick(Sender: TObject);
-begin OpenURL('http://www.francocorbelli.it'); end;
+procedure TfrmMain.btnExit2Click(Sender: TObject);
+begin
+  close;
+end;
 
 procedure TfrmMain.DoLoadArchive(const AFileName: string);
 begin
@@ -1864,11 +2106,13 @@ end;
 
 procedure TfrmMain.RunPakkaList;
 var
+  {$IFDEF WINDOWS}
   DLLPath: string;
   hDLL: TLibHandle;
   ZpaqRun: TZpaqRunCommand;
   ZpaqSetOut: procedure(cb: TOutputCallback); cdecl;
-  ZpaqReset: procedure; cdecl; // Corretto per FreePascal (senza parentesi vuote)
+  ZpaqReset: procedure; cdecl;
+  {$ENDIF}
   ElapsedSecs: Double;
 begin
   pgrProgresso.Position := 0;
@@ -1890,18 +2134,13 @@ begin
   btnOpen.Enabled := False;
   lblArchiveInfo.Caption := ExtractFileName(FArchivePath) + ' (' + S('lbl_loading', 'loading...') + ')';
   FLoadStartTime := Now;
+
+  {$IFDEF WINDOWS}
+  // === WINDOWS: prima prova la DLL (listing sincrono veloce), poi fallback EXE ===
   lblLoadInfo.Caption := S('lbl_loading', 'Loading fast via DLL...');
   Application.ProcessMessages;
 
-  {$IFDEF WINDOWS}
   DLLPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
-  {$ELSE}
-  {$IFDEF DARWIN}
-  DLLPath := ExtractFilePath(ParamStr(0)) + 'libzpaqfranz.dylib';
-  {$ELSE}
-  DLLPath := ExtractFilePath(ParamStr(0)) + 'libzpaqfranz.so';
-  {$ENDIF}
-  {$ENDIF}
 
   AddLog('Attempting fast pakka list (Direct DLL)...');
 
@@ -1928,7 +2167,6 @@ begin
         finally
           FastDLLBuffer.Free;
           FastDLLBuffer := nil;
-          // Invocazione sicura per il reset della libreria
           if Assigned(ZpaqReset) then ZpaqReset;
         end;
 
@@ -1944,13 +2182,11 @@ begin
         lblLoadInfo.Caption := Format(S('lbl_loaded_fmt', '%d files loaded in %.3f s'), [Length(FArchiveData.Files), ElapsedSecs]);
         btnOpen.Enabled := True;
 
-        // Stessa logica di OnBridgeComplete: browse mode se < 2 versioni
         if (FArchiveBrowsePath <> '') and
            (Length(FArchiveData.GlobalVersions) < 2) and
            (Length(FArchiveData.Files) > 0) then
         begin
           ShowArchiveBrowse(FArchiveBrowsePath, FArchiveData);
-          { FArchiveBrowsePath NON azzerato: serve al popup Test/Extract in browse mode }
         end
         else
         begin
@@ -1966,6 +2202,14 @@ begin
   end
   else AddLog('WARNING: DLL not found. Falling back to EXE async...');
 
+  {$ELSE}
+  // === macOS / Linux: usa direttamente l'EXE (niente DLL) ===
+  lblLoadInfo.Caption := S('lbl_loading', 'Loading via zpaqfranz...');
+  Application.ProcessMessages;
+  AddLog('Running pakka list via Executable (platform mode)...');
+  {$ENDIF}
+
+  // --- Percorso comune: listing asincrono tramite EXE ---
   FBridge.IsDataMode := True;
   TimerUpdate.Enabled := True;
   AddLog('Running pakka list via Executable...');
@@ -2532,12 +2776,23 @@ begin
 
     // --- Aggiornamento disponibile ---
     AddLog('Update available: server build=' + IntToStr(UpdateInfo.CatpaqInfo.BuildNumber));
+    {$IFDEF WINDOWS}
+    Msg := Format(S('msg_update_available_fmt', 'Your build %d is older than build %d.') + LineEnding +
+      'Catpaq: %s (%s)' + LineEnding + 'zpaqfranz.exe: %s (%s)' + LineEnding +
+      'zpaqfranz.dll: %s (%s)' + LineEnding + LineEnding +
+      S('msg_update_now', 'Do you want to update now?'),
+      [CurrentBuild, UpdateInfo.CatpaqInfo.BuildNumber,
+       FormatFileSize(UpdateInfo.CatpaqInfo.FileSize), UpdateInfo.CatpaqInfo.DateTime,
+       FormatFileSize(UpdateInfo.EXEInfo.FileSize), UpdateInfo.EXEInfo.DateTime,
+       FormatFileSize(UpdateInfo.DLLInfo.FileSize), UpdateInfo.DLLInfo.DateTime]);
+    {$ELSE}
     Msg := Format(S('msg_update_available_fmt', 'Your build %d is older than build %d.') + LineEnding +
       'Catpaq: %s (%s)' + LineEnding + 'zpaqfranz: %s (%s)' + LineEnding + LineEnding +
       S('msg_update_now', 'Do you want to update now?'),
       [CurrentBuild, UpdateInfo.CatpaqInfo.BuildNumber,
        FormatFileSize(UpdateInfo.CatpaqInfo.FileSize), UpdateInfo.CatpaqInfo.DateTime,
-       FormatFileSize(UpdateInfo.DLLInfo.FileSize), UpdateInfo.DLLInfo.DateTime]);
+       FormatFileSize(UpdateInfo.EXEInfo.FileSize), UpdateInfo.EXEInfo.DateTime]);
+    {$ENDIF}
 
     if MessageDlg(S('dlg_update_available', 'Update Available'), Msg,
         mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
@@ -2662,15 +2917,13 @@ end;
 
 procedure TfrmMain.ApplyLanguage;
 begin
-  TabArchive.Caption := S('tab_archive', 'Archive');
+  TabArchive.Caption := S('tab_archive', 'Versions');
   TabLog.Caption := S('tab_log', 'Log');
   TabSettings.Caption := S('tab_settings', 'Settings');
-  TabAdd.Caption := S('tab_add', 'Add');
+  TabAdd.Caption := S('tab_add', 'Browse');
   lblFilter.Caption := S('lbl_filter', 'Filter:');
   edtFilter.TextHint := S('filter_hint', 'Type and press Enter (=exact match)');
   btnOpen.Caption := S('btn_open', 'Select ZPAQ...');
-  btnHelp.Caption := '?';
-  btnExit.Caption := S('btn_exit', '&Exit');
   lblArchiveInfo.Caption := S('lbl_no_archive', 'No archive loaded');
   gbFileAssoc.Caption := S('gb_file_assoc', 'File Associations');
   btnAssociate.Caption := S('btn_associate', 'Associate .zpaq and .zpaq.franzen');
@@ -2878,7 +3131,7 @@ end;
 
 { === Archive Browse Mode === }
 
-// Popola lvAddFiles con i file dell'archivio (una sola versione).
+// Popola lvAddFiles confile dell'archivio (una sola versione).
 // Sostituisce temporaneamente la vista filesystem con i contenuti dell'archivio.
 procedure TfrmMain.ShowArchiveBrowse(const AArchivePath: string; const AData: TArchiveData);
 var
@@ -3173,7 +3426,15 @@ begin
   // 3. Fa apparire il menu a tendina esattamente incollato sotto al bottone!
   popTest.PopUp(Pt.X, Pt.Y);
 end;
-procedure TfrmMain.btnAddExtractClick(Sender: TObject); begin mnuAddExtractToFolderClick(Sender); end;
+procedure TfrmMain.btnAddExtractClick(Sender: TObject);
+begin
+  AddLog('DEBUG: forced load settings');
+  LoadSettingsFromIni;
+  // Forza anche l'applicazione immediata della geometria (senza aspettare il timer)
+  FTimerRestore.Enabled := False;
+  FTimerRestore.Enabled := True;
+  // mnuAddExtractToFolderClick(Sender);  { ← ripristina quando non serve più il debug }
+end;
 
 procedure TfrmMain.edtAddFilterKeyPress(Sender: TObject; var Key: Char);
 begin if Key = #13 then begin Key := #0; ApplyAddFilter(edtAddFilter.Text); end; end;
@@ -3238,23 +3499,52 @@ begin
   end;
 end;
 
-procedure TfrmMain.lvAddFilesAdvancedCustomDrawItem(Sender: TCustomListView; Item: TListItem; State: TCustomDrawState; Stage: TCustomDrawStage; var DefaultDraw: Boolean);
-var ItemName, LowerName: string; IsZpaq, IsFolder: Boolean;
+procedure TfrmMain.lvAddFilesAdvancedCustomDrawItem(Sender: TCustomListView;
+  Item: TListItem; State: TCustomDrawState; Stage: TCustomDrawStage;
+  var DefaultDraw: Boolean);
+var
+  ItemName, LowerName: string;
+  IsZpaq, IsFolder: Boolean;
+  FgColor: TColor;
 begin
-  DefaultDraw := True; if Stage <> cdPrePaint then Exit; if Item = nil then Exit;
-  ItemName := Item.Caption; LowerName := LowerCase(ItemName);
-  IsZpaq := (Pos('.zpaq', LowerName) > 0);
-  IsFolder := (Length(ItemName) > 0) and (ItemName[Length(ItemName)] = '/');
+  DefaultDraw := True;
+  if Stage <> cdPrePaint then Exit;
+  if Item = nil then Exit;
+
+  ItemName := Item.Caption;
+  LowerName := LowerCase(ItemName);
+
+  // Cartella: termina con '/' oppure è '..'
+  IsFolder := ((Length(ItemName) > 0) and (ItemName[Length(ItemName)] = '/'))
+              or (ItemName = '..');
+
+  // File zpaq: estensione esattamente .zpaq o .zpaq.franzen
+  IsZpaq := (not IsFolder) and
+             ( (ExtractFileExt(LowerName) = '.zpaq') or
+               (Copy(LowerName, Length(LowerName) - 12, 13) = '.zpaq.franzen') );
+
+  // IMPORTANTE: il canvas viene riusato tra item consecutivi — bisogna SEMPRE
+  // resettare Font.Color e Font.Style, anche per i file normali.
+  // Se non lo facciamo, un file .zpaq lascia il canvas rosso/bold e l'item
+  // successivo (file normale) lo eredita, risultando anch'esso rosso.
   if IsFolder then
   begin
-    Sender.Canvas.Font.Style := Sender.Canvas.Font.Style + [fsBold];
-    Sender.Canvas.Font.Color := $00007000; // verde scuro
+    FgColor := $00007000; // verde scuro
+    Sender.Canvas.Font.Style := [fsBold];
   end
   else if IsZpaq then
   begin
-    Sender.Canvas.Font.Style := Sender.Canvas.Font.Style + [fsBold];
-    Sender.Canvas.Font.Color := clRed;
+    FgColor := clRed;
+    Sender.Canvas.Font.Style := [fsBold];
+  end
+  else
+  begin
+    // File normale: reset COMPLETO — assegna direttamente, non sottrae
+    FgColor := clWindowText;
+    Sender.Canvas.Font.Style := [];
   end;
+
+  Sender.Canvas.Font.Color := FgColor;
 end;
 
 function TfrmMain.IsZpaqFile(const AFileName: string): Boolean;
@@ -3842,6 +4132,16 @@ begin
   finally
     lvAddFiles.Items.EndUpdate;
   end;
+end;
+
+
+
+procedure TfrmMain.btnHelpClick(Sender: TObject);
+begin OpenURL('https://github.com/fcorbelli/catpaq/wiki'); end;
+
+procedure TfrmMain.btnHelp1Click(Sender: TObject);
+begin
+
 end;
 
 end.

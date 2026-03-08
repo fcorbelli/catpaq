@@ -1,117 +1,119 @@
 object frmExtract: TfrmExtract
-  Left = 0
-  Height = 600
-  Top = 0
-  Width = 680
+  Left = 342
+  Height = 1500
+  Top = 278
+  Width = 1700
   Caption = 'Extract from archive'
-  ClientHeight = 600
-  ClientWidth = 680
+  ClientHeight = 1500
+  ClientWidth = 1700
+  DesignTimePPI = 240
   KeyPreview = True
+  Position = poScreenCenter
+  LCLVersion = '4.4.0.0'
   OnClose = FormClose
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
   OnResize = FormResize
-  Position = poScreenCenter
   object pnlTop: TPanel
     Left = 0
-    Height = 190
+    Height = 475
     Top = 0
-    Width = 680
+    Width = 1700
     Align = alTop
     BevelOuter = bvNone
+    ClientHeight = 475
+    ClientWidth = 1700
     TabOrder = 0
     object lblInfo: TLabel
-      Left = 12
-      Height = 18
-      Top = 8
-      Width = 656
+      Left = 30
+      Height = 45
+      Top = 20
+      Width = 1640
       Anchors = [akTop, akLeft, akRight]
-      Caption = ''
       AutoSize = False
       Font.Style = [fsBold]
       ParentFont = False
     end
     object lblDestPath: TLabel
-      Left = 12
-      Height = 18
-      Top = 34
-      Width = 200
+      Left = 30
+      Height = 41
+      Top = 85
+      Width = 244
       Caption = 'Destination folder:'
-      AutoSize = True
     end
     object cmbDestPath: TComboBox
-      Left = 12
-      Height = 28
-      Top = 54
-      Width = 596
+      Left = 168
+      Height = 49
+      Top = 136
+      Width = 1490
       Anchors = [akTop, akLeft, akRight]
+      ItemHeight = 41
       TabOrder = 0
       OnKeyDown = cmbDestPathKeyDown
     end
     object btnBrowse: TButton
-      Left = 616
-      Height = 28
-      Top = 54
-      Width = 52
-      Anchors = [akTop, akRight]
+      Left = 32
+      Height = 49
+      Top = 135
+      Width = 130
+      Anchors = [akTop]
       Caption = '...'
       TabOrder = 1
       OnClick = btnBrowseClick
     end
     object pnlExtraFields: TPanel
       Left = 0
-      Height = 90
-      Top = 95
-      Width = 680
+      Height = 225
+      Top = 238
+      Width = 1700
       Anchors = [akTop, akLeft, akRight]
       BevelOuter = bvNone
+      ClientHeight = 225
+      ClientWidth = 1700
       TabOrder = 2
       object lblTo: TLabel
-        Left = 12
-        Height = 18
-        Top = 2
-        Width = 50
+        Left = 30
+        Height = 41
+        Top = 5
+        Width = 38
         Caption = 'To:'
-        AutoSize = True
       end
       object edtTo: TEdit
-        Left = 70
-        Height = 26
+        Left = 175
+        Height = 49
         Top = 0
-        Width = 590
+        Width = 1475
         Anchors = [akTop, akLeft, akRight]
         TabOrder = 0
       end
       object lblFind: TLabel
-        Left = 12
-        Height = 18
-        Top = 34
-        Width = 50
+        Left = 30
+        Height = 41
+        Top = 85
+        Width = 64
         Caption = 'Find:'
-        AutoSize = True
       end
       object edtFind: TEdit
-        Left = 70
-        Height = 26
-        Top = 32
-        Width = 590
+        Left = 175
+        Height = 49
+        Top = 80
+        Width = 1475
         Anchors = [akTop, akLeft, akRight]
         TabOrder = 1
       end
       object lblReplace: TLabel
-        Left = 12
-        Height = 18
-        Top = 66
-        Width = 70
+        Left = 30
+        Height = 41
+        Top = 165
+        Width = 110
         Caption = 'Replace:'
-        AutoSize = True
       end
       object edtReplace: TEdit
-        Left = 70
-        Height = 26
-        Top = 64
-        Width = 590
+        Left = 175
+        Height = 49
+        Top = 160
+        Width = 1475
         Anchors = [akTop, akLeft, akRight]
         TabOrder = 2
       end
@@ -119,17 +121,19 @@ object frmExtract: TfrmExtract
   end
   object pnlBottom: TPanel
     Left = 0
-    Height = 48
-    Top = 552
-    Width = 680
+    Height = 120
+    Top = 1380
+    Width = 1700
     Align = alBottom
     BevelOuter = bvNone
+    ClientHeight = 120
+    ClientWidth = 1700
     TabOrder = 1
     object btnAbort: TButton
-      Left = 400
-      Height = 32
-      Top = 8
-      Width = 88
+      Left = 1000
+      Height = 80
+      Top = 20
+      Width = 220
       Anchors = [akTop, akRight]
       Caption = 'ABORT'
       Enabled = False
@@ -141,10 +145,10 @@ object frmExtract: TfrmExtract
       OnClick = btnAbortClick
     end
     object btnOK: TBitBtn
-      Left = 496
-      Height = 32
-      Top = 8
-      Width = 80
+      Left = 1240
+      Height = 80
+      Top = 20
+      Width = 200
       Anchors = [akTop, akRight]
       Caption = 'Extract'
       Kind = bkOK
@@ -152,36 +156,55 @@ object frmExtract: TfrmExtract
       OnClick = btnOKClick
     end
     object btnCancel: TBitBtn
-      Left = 584
-      Height = 32
-      Top = 8
-      Width = 84
+      Left = 1460
+      Height = 80
+      Top = 20
+      Width = 210
       Anchors = [akTop, akRight]
       Caption = 'Cancel'
       TabOrder = 2
       OnClick = btnCancelClick
     end
+    object pgrProgress: TProgressBar
+      Left = 256
+      Height = 80
+      Top = 20
+      Width = 154
+      TabOrder = 3
+    end
+    object lbleta: TLabel
+      Left = 24
+      Height = 81
+      Top = 19
+      Width = 218
+      Caption = '00:00:00'
+      Font.CharSet = ANSI_CHARSET
+      Font.Height = -60
+      Font.Pitch = fpVariable
+      Font.Quality = fqDraft
+      ParentFont = False
+    end
   end
   object memLog: TMemo
     Left = 0
-    Height = 362
-    Top = 190
-    Width = 680
+    Height = 905
+    Top = 475
+    Width = 1700
     Align = alClient
+    PopupMenu = PopupMenuLog
     ReadOnly = True
     ScrollBars = ssVertical
     TabOrder = 2
     WordWrap = False
-    PopupMenu = PopupMenuLog
   end
   object SelectDirectoryDialog1: TSelectDirectoryDialog
     Title = 'Select destination folder'
-    Left = 12
-    Top = 540
+    Left = 40
+    Top = 1216
   end
   object PopupMenuLog: TPopupMenu
-    Left = 60
-    Top = 540
+    Left = 136
+    Top = 1240
     object mnuSaveLog: TMenuItem
       Caption = 'Save log to file...'
       OnClick = mnuSaveLogClick
@@ -192,7 +215,7 @@ object frmExtract: TfrmExtract
     end
   end
   object SaveDialog1: TSaveDialog
-    Left = 110
-    Top = 540
+    Left = 320
+    Top = 1224
   end
 end

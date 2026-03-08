@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  Buttons, IniFiles, FileUtil, uzpaqbridge, Types, Menus;
+  Buttons, IniFiles, FileUtil, uzpaqbridge, Types, Menus, ComCtrls, uglobals, LCLIntf;
 
 type
 
@@ -33,6 +33,8 @@ type
     edtFind: TEdit;
     lblReplace: TLabel;
     edtReplace: TEdit;
+    pgrProgress: TProgressBar;
+    lbleta: TLabel;
     SelectDirectoryDialog1: TSelectDirectoryDialog;
     PopupMenuLog: TPopupMenu;
     mnuSaveLog: TMenuItem;
@@ -64,6 +66,7 @@ type
 
     FSavedOnComplete: TZpaqCompleteEvent;
     FSavedOnLog: TZpaqLogEvent;
+    FSavedOnProgress: TZpaqProgressEvent;
     FSavedIsDataMode: Boolean;
 
     FLogPollTimer: TTimer;
@@ -75,6 +78,8 @@ type
     function NormalizePath(const APath: string): string;
     procedure ExecuteCommand;
     procedure OnBridgeComplete(Sender: TObject; ExitCode: Integer);
+    function  FormatETA(ASeconds: Integer): string;
+    procedure OnBridgeProgress(Sender: TObject; Percent: Integer; const AMsg: string);
     procedure OnLogPollTimer(Sender: TObject);
     procedure RestoreMainBridge;
     procedure UpdateUIForMode;
@@ -126,6 +131,7 @@ begin
   begin
     ZpaqBridgeMain.OnComplete := FSavedOnComplete;
     ZpaqBridgeMain.OnLog      := FSavedOnLog;
+    ZpaqBridgeMain.OnProgress := FSavedOnProgress;
     ZpaqBridgeMain.IsDataMode := FSavedIsDataMode;
   end;
 end;
@@ -139,12 +145,18 @@ begin
   btnCancel.Enabled := not ARunning;
   btnAbort.Visible  := ARunning;
   btnAbort.Enabled  := ARunning;
+  pgrProgress.Visible := ARunning;
+  pgrProgress.Position := 0;
+  lbleta.Visible  := ARunning;
+  lbleta.Caption  := '00:00:00';
   cmbDestPath.Enabled    := not ARunning;
   btnBrowse.Enabled      := not ARunning;
   pnlExtraFields.Enabled := not ARunning;
 end;
 
 procedure TfrmExtract.UpdateUIForMode;
+var
+  LastBottom: Integer;
 begin
   if FMode = emTest then
   begin
@@ -153,7 +165,6 @@ begin
     btnOK.Caption        := 'Test';
     SelectDirectoryDialog1.Title := 'Select temp test folder';
     pnlExtraFields.Visible := False;
-    pnlTop.Height := 100;
   end
   else
   begin
@@ -161,8 +172,18 @@ begin
     btnOK.Caption        := 'Extract';
     SelectDirectoryDialog1.Title := 'Select destination folder';
     pnlExtraFields.Visible := True;
-    pnlTop.Height := 190;
   end;
+
+  { Altezza parametrica: bottom dell'ultimo componente visibile + margine }
+  if pnlExtraFields.Visible then
+    LastBottom := pnlExtraFields.Top + pnlExtraFields.Height
+  else
+  begin
+    { Ultimo componente visibile = cmbDestPath (o btnBrowse, stesso Top+Height) }
+    LastBottom := cmbDestPath.Top + cmbDestPath.Height;
+  end;
+  pnlTop.Height := LastBottom + 20;   { margine inferiore 20px (scaled units) }
+
   UpdateEditWidths;
 end;
 
@@ -172,19 +193,20 @@ var
 begin
   W := ClientWidth - 10;
   if W < 50 then W := 50;
-  cmbDestPath.Width := W - btnBrowse.Width - 8 - cmbDestPath.Left;
   edtTo.Width      := W - edtTo.Left;
   edtFind.Width    := W - edtFind.Left;
   edtReplace.Width := W - edtReplace.Left;
+  pgrprogress.width:= btnabort.left-pgrprogress.left-4;
 end;
 
 procedure TfrmExtract.FormCreate(Sender: TObject);
 begin
-  FIniFileName := ChangeFileExt(Application.ExeName, '.ini');
+  FIniFileName := GetCatpaqIniPath;
   FIniFile     := TIniFile.Create(FIniFileName);
 
   FSavedOnComplete := nil;
   FSavedOnLog      := nil;
+  FSavedOnProgress := nil;
   FSavedIsDataMode := False;
 
   FLogPollTimer          := TTimer.Create(Self);
@@ -195,6 +217,9 @@ begin
   btnOK.ModalResult := mrNone;
   btnAbort.Visible  := False;
   btnAbort.Enabled  := False;
+  pgrProgress.Visible := False;
+  lbleta.Visible  := False;
+  lbleta.Caption  := '00:00:00';
 
   FMode := emExtract;
 
@@ -267,6 +292,7 @@ procedure TfrmExtract.mnuClearLogClick(Sender: TObject);
 begin
   memLog.Lines.Clear;
 end;
+
 
 { --- Abort --- }
 
@@ -407,6 +433,7 @@ begin
       Result := Result + ' -key "' + FPasswordAES + '"';
     if FPasswordFranzen <> '' then
       Result := Result + ' -franzen "' + FPasswordFranzen + '"';
+    Result := Result + ' -catpaqmode';
   end
   else
   begin
@@ -430,6 +457,7 @@ begin
       Result := Result + ' -find "' + FindVal + '"';
     if ReplaceVal <> '' then
       Result := Result + ' -replace "' + ReplaceVal + '"';
+    Result := Result + ' -catpaqmode';
   end;
 end;
 
@@ -518,10 +546,12 @@ begin
 
   FSavedOnComplete := ZpaqBridgeMain.OnComplete;
   FSavedOnLog      := ZpaqBridgeMain.OnLog;
+  FSavedOnProgress := ZpaqBridgeMain.OnProgress;
   FSavedIsDataMode := ZpaqBridgeMain.IsDataMode;
 
   ZpaqBridgeMain.OnLog      := nil;
   ZpaqBridgeMain.OnComplete := @OnBridgeComplete;
+  ZpaqBridgeMain.OnProgress := @OnBridgeProgress;
   ZpaqBridgeMain.IsDataMode := False;
 
   SetRunningState(True);
@@ -543,15 +573,65 @@ end;
 procedure TfrmExtract.OnLogPollTimer(Sender: TObject);
 var
   LogBuf: TStringList;
+  I: Integer;
+  Line: string;
+  PP: Integer;
 begin
   if not Assigned(ZpaqBridgeMain) then Exit;
   LogBuf := ZpaqBridgeMain.FlushLogBuffer;
   try
-    if LogBuf.Count > 0 then
-      memLog.Lines.AddStrings(LogBuf);
+    if LogBuf.Count = 0 then Exit;
+    memLog.Lines.BeginUpdate;
+    try
+      for I := 0 to LogBuf.Count - 1 do
+      begin
+        Line := LogBuf[I];
+        { Filtra eventuali righe di progresso \r-based residue che non
+          sono state intercettate dal bridge (testo libero senza @SPK@).
+          Criterio: riga trimmed che inizia con un numero e contiene '%'
+          nelle prime 8 posizioni — identico al vecchio TryParsePercent. }
+        PP := Pos('%', TrimLeft(Line));
+        if (PP >= 2) and (PP <= 8) then Continue;
+        memLog.Lines.Add(Line);
+      end;
+    finally
+      memLog.Lines.EndUpdate;
+    end;
   finally
     LogBuf.Free;
   end;
+end;
+
+function TfrmExtract.FormatETA(ASeconds: Integer): string;
+var
+  H, M, S: Integer;
+
+  function Pad2(N: Integer): string;
+  begin
+    if N > 99 then N := 99;
+    if N < 0  then N := 0;
+    Result := IntToStr(N);
+    if Length(Result) < 2 then Result := '0' + Result;
+  end;
+
+begin
+  if ASeconds < 0 then ASeconds := 0;
+  H := ASeconds div 3600;
+  M := (ASeconds mod 3600) div 60;
+  S := ASeconds mod 60;
+  Result := Pad2(H) + ':' + Pad2(M) + ':' + Pad2(S);
+end;
+
+procedure TfrmExtract.OnBridgeProgress(Sender: TObject; Percent: Integer; const AMsg: string);
+begin
+  { Riceve il progresso dal bridge via QueueAsyncCall (TriggerProgress).
+    Funziona per @SPK@EXT@ (extract/test) in tempo reale,
+    grazie al \n+fflush() aggiunto in print_progress() C++. }
+  if not pgrProgress.Visible then Exit;
+  pgrProgress.Max      := 100;
+  pgrProgress.Position := Percent;
+  if lbleta.Visible then
+    lbleta.Caption := FormatETA(ZpaqBridgeMain.ProgETA);
 end;
 
 procedure TfrmExtract.OnBridgeComplete(Sender: TObject; ExitCode: Integer);
@@ -560,6 +640,9 @@ var
   Msg: string;
   OpName: string;
   WasAborted: Boolean;
+  FFlushIdx: Integer;
+  FFlushLine: string;
+  FFlushPP: Integer;
 begin
   FLogPollTimer.Enabled := False;
 
@@ -569,7 +652,21 @@ begin
     LogBuf := ZpaqBridgeMain.FlushLogBuffer;
     try
       if LogBuf.Count > 0 then
-        memLog.Lines.AddStrings(LogBuf);
+      begin
+        memLog.Lines.BeginUpdate;
+        try
+          for FFlushIdx := 0 to LogBuf.Count - 1 do
+          begin
+            { Salta righe di progresso testo-libero residue (\r-based) }
+            FFlushLine := TrimLeft(LogBuf[FFlushIdx]);
+            FFlushPP   := Pos('%', FFlushLine);
+            if (FFlushPP >= 2) and (FFlushPP <= 8) then Continue;
+            memLog.Lines.Add(LogBuf[FFlushIdx]);
+          end;
+        finally
+          memLog.Lines.EndUpdate;
+        end;
+      end;
     finally
       LogBuf.Free;
     end;
@@ -600,12 +697,23 @@ begin
   else if ExitCode = 0 then
   begin
     if FMode = emTest then
-      Msg := OpName + ' completed successfully.'
+    begin
+      Msg := OpName + ' completed successfully.';
+      memLog.Lines.Add(Msg);
+      ShowMessage(Msg);
+    end
     else
+    begin
       Msg := OpName + ' completed successfully.' + LineEnding +
              'Destination: ' + Trim(cmbDestPath.Text);
-    memLog.Lines.Add(Msg);
-    ShowMessage(Msg);
+      memLog.Lines.Add(Msg);
+      { Chiede se aprire la cartella di destinazione. Default: No (mbNo). }
+      if MessageDlg('Extraction completed successfully.' + LineEnding +
+                    'Destination: ' + Trim(cmbDestPath.Text) + LineEnding + LineEnding +
+                    'Open destination folder?',
+                    mtConfirmation, [mbYes, mbNo], 0, mbNo) = mrYes then
+        OpenDocument(Trim(cmbDestPath.Text));
+    end;
   end
   else
   begin

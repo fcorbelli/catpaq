@@ -23,7 +23,7 @@
     <VersionInfo>
       <UseVersionInfo Value="True"/>
       <MajorVersionNr Value="1"/>
-      <BuildNr Value="14"/>
+      <BuildNr Value="15"/>
       <StringTable ProductVersion="1.0.0"/>
     </VersionInfo>
     <BuildModes>
@@ -105,9 +105,6 @@
       <FormatVersion Value="2"/>
     </RunParams>
     <RequiredPackages>
-      <Item>
-        <PackageName Value="DCPcrypt"/>
-      </Item>
       <Item>
         <PackageName Value="laz.virtualtreeview_package"/>
       </Item>

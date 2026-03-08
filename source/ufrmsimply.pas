@@ -453,7 +453,7 @@ var
   MnuSave: TMenuItem;
   SavedLang: string;
 begin
-  FIniFileName := ChangeFileExt(Application.ExeName, '.ini');
+  FIniFileName := GetCatpaqIniPath;
   FIniFile     := TIniFile.Create(FIniFileName);
 
   // --- Lingua: usa la stessa chiave del main (Language/Name) ---

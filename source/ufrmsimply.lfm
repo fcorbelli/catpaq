@@ -1,7 +1,7 @@
 object frmSimply: TfrmSimply
-  Left = 440
+  Left = 873
   Height = 1609
-  Top = 198
+  Top = 650
   Width = 1856
   Caption = 'Add to Archive'
   ClientHeight = 1609

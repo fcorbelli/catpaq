@@ -17,14 +17,12 @@ type
 
   TUpdateInfo = record
     CatpaqInfo: TVersionInfo;
-    EXEInfo:    TVersionInfo;  // zpaqfranz.exe
-    DLLInfo:    TVersionInfo;  // zpaqfranz.dll
+    EXEInfo:    TVersionInfo;  // zpaqfranz.exe / zpaqfranz
+    DLLInfo:    TVersionInfo;  // zpaqfranz.dll (Windows only)
     Valid:      Boolean;
   end;
 
-  // Callback opzionale per log dettagliato dal chiamante
   TUpdateLogEvent      = procedure(const AMsg: string) of object;
-  // Callback per avanzamento download: Bytes scaricati, Totale atteso (0 se ignoto)
   TUpdateProgressEvent = procedure(Downloaded, Total: Int64) of object;
 
   { TUpdateChecker }
@@ -36,18 +34,13 @@ type
     FLastError:        string;
     FOnLog:            TUpdateLogEvent;
     FOnProgress:       TUpdateProgressEvent;
-    FDownloadTotal:    Int64;   // Content-Length del download corrente
-    FDownloadReported: Int64;   // Ultimo valore notificato (throttle 32 KB)
+    FDownloadTotal:    Int64;
+    FDownloadReported: Int64;
 
     procedure HandleDataReceived(Sender: TObject; const ContentLength, CurrentPos: Int64);
-
     procedure Log(const AMsg: string);
     function  ParseVersionFile(const Content: string): TUpdateInfo;
     function  ValidateVersionFile(const Content: string): Boolean;
-
-    // DownloadFile con diagnostica completa:
-    // restituisce True solo se HTTP 200 e dati ricevuti.
-    // In caso di errore popola FLastError con dettaglio.
     function  DownloadFile(const URL: string; var Content: TBytes): Boolean;
   public
     constructor Create;
@@ -59,7 +52,6 @@ type
     function DownloadDLLFile(out DLLData: TBytes): Boolean;
     function CalculateSHA256FromBytes_Public(const Data: TBytes): string;
 
-    // Ultimo errore leggibile dal chiamante
     property LastError:   string               read FLastError;
     property OnLog:       TUpdateLogEvent      read FOnLog      write FOnLog;
     property OnProgress:  TUpdateProgressEvent read FOnProgress write FOnProgress;
@@ -76,18 +68,25 @@ uses
   {$ENDIF}
   FileUtil;
 
-{ --- Helpers interni --- }
-
 procedure TUpdateChecker.Log(const AMsg: string);
 begin
-  if Assigned(FOnLog) then
-    FOnLog(AMsg);
+  if Assigned(FOnLog) then FOnLog(AMsg);
 end;
 
 constructor TUpdateChecker.Create;
 begin
+  {$IFDEF WINDOWS}
   FVersionURL := 'http://www.francocorbelli.it/catpaq/latest/win64/version.txt';
   FBaseURL    := 'http://www.francocorbelli.it/catpaq/latest/win64/';
+  {$ELSE}
+  {$IFDEF DARWIN}
+  FVersionURL := 'http://www.francocorbelli.it/catpaq/latest/macos/version.txt';
+  FBaseURL    := 'http://www.francocorbelli.it/catpaq/latest/macos/';
+  {$ELSE}
+  FVersionURL := 'http://www.francocorbelli.it/catpaq/latest/linux64/version.txt';
+  FBaseURL    := 'http://www.francocorbelli.it/catpaq/latest/linux64/';
+  {$ENDIF}
+  {$ENDIF}
   FTempDir    := GetTempDir(False) + 'catpaq_update' + PathDelim;
   FLastError         := '';
   FOnLog             := nil;
@@ -109,8 +108,6 @@ begin
   end;
 end;
 
-{ --- DownloadFile con diagnostica completa + progress --- }
-
 function TUpdateChecker.DownloadFile(const URL: string; var Content: TBytes): Boolean;
 var
   HTTP:       TFPHTTPClient;
@@ -120,28 +117,21 @@ begin
   Result     := False;
   FLastError := '';
   SetLength(Content, 0);
-
-  // Reset progress state for this download
   FDownloadTotal    := 0;
   FDownloadReported := 0;
   if Assigned(FOnProgress) then FOnProgress(0, 0);
-
   Log('DownloadFile: URL=' + URL);
-
   HTTP   := TFPHTTPClient.Create(nil);
   Stream := TBytesStream.Create;
   try
     try
-      HTTP.AllowRedirect     := True;
-      HTTP.IOTimeout         := 20000;
-      HTTP.OnDataReceived    := @HandleDataReceived;
-
+      HTTP.AllowRedirect  := True;
+      HTTP.IOTimeout      := 20000;
+      HTTP.OnDataReceived := @HandleDataReceived;
       HTTP.Get(URL, Stream);
-
       StatusCode := HTTP.ResponseStatusCode;
       Log('DownloadFile: HTTP status=' + IntToStr(StatusCode) +
           ' bytes=' + IntToStr(Stream.Size));
-
       if StatusCode <> 200 then
       begin
         FLastError := 'HTTP ' + IntToStr(StatusCode) +
@@ -150,7 +140,6 @@ begin
         if Assigned(FOnProgress) then FOnProgress(0, 0);
         Exit;
       end;
-
       if Stream.Size = 0 then
       begin
         FLastError := 'Empty response (0 bytes) for URL: ' + URL;
@@ -158,14 +147,11 @@ begin
         if Assigned(FOnProgress) then FOnProgress(0, 0);
         Exit;
       end;
-
       Content := Stream.Bytes;
       SetLength(Content, Stream.Size);
       Result := True;
-      // Notifica 100% completamento
       if Assigned(FOnProgress) then FOnProgress(Stream.Size, Stream.Size);
       Log('DownloadFile: OK (' + IntToStr(Length(Content)) + ' bytes)');
-
     except
       on E: Exception do
       begin
@@ -180,29 +166,24 @@ begin
   end;
 end;
 
-{ --- ValidateVersionFile --- }
-
 function TUpdateChecker.ValidateVersionFile(const Content: string): Boolean;
 var
   Lines: TStringList;
   i: Integer;
   c: Char;
 const
-  MaxLines = 11;  // 9 dati + eventuale riga vuota finale + margine
+  MaxLines = 11;
   MinLines = 9;
   MaxSize  = 1024;
   AllowedChars = ['0'..'9', 'a'..'f', 'A'..'F', '/', ':', ' ', #13, #10];
 begin
   Result := False;
-
   if Length(Content) > MaxSize then
   begin
     FLastError := 'ValidateVersionFile: content too long (' +
                   IntToStr(Length(Content)) + ' > ' + IntToStr(MaxSize) + ')';
-    Log(FLastError);
-    Exit;
+    Log(FLastError); Exit;
   end;
-
   for i := 1 to Length(Content) do
   begin
     c := Content[i];
@@ -210,28 +191,21 @@ begin
     begin
       FLastError := 'ValidateVersionFile: invalid char #' +
                     IntToStr(Ord(c)) + ' at pos ' + IntToStr(i);
-      Log(FLastError);
-      Exit;
+      Log(FLastError); Exit;
     end;
   end;
-
   Lines := TStringList.Create;
   try
     Lines.Text := Content;
-    // Ignora righe vuote in coda
     while (Lines.Count > 0) and (Trim(Lines[Lines.Count - 1]) = '') do
       Lines.Delete(Lines.Count - 1);
-
     Log('ValidateVersionFile: line count (trimmed)=' + IntToStr(Lines.Count));
-
     if (Lines.Count < MinLines) or (Lines.Count > MaxLines) then
     begin
       FLastError := 'ValidateVersionFile: wrong line count ' + IntToStr(Lines.Count) +
                     ' (expected ' + IntToStr(MinLines) + '..' + IntToStr(MaxLines) + ')';
-      Log(FLastError);
-      Exit;
+      Log(FLastError); Exit;
     end;
-    // line[0]: build number (1-3 cifre)
     if (Length(Lines[0]) < 1) or (Length(Lines[0]) > 3) then
     begin
       FLastError := 'ValidateVersionFile: line[0] bad length=' + IntToStr(Length(Lines[0]));
@@ -242,7 +216,6 @@ begin
       FLastError := 'ValidateVersionFile: line[0] not a number: "' + Lines[0] + '"';
       Log(FLastError); Exit;
     end;
-    // date lines: [1],[4],[7]  length=19
     if Length(Lines[1]) <> 19 then
     begin
       FLastError := 'ValidateVersionFile: line[1] length=' + IntToStr(Length(Lines[1])) + ' expected 19';
@@ -258,7 +231,6 @@ begin
       FLastError := 'ValidateVersionFile: line[7] length=' + IntToStr(Length(Lines[7])) + ' expected 19';
       Log(FLastError); Exit;
     end;
-    // hash lines: [2],[5],[8]  length=64
     if Length(Lines[2]) <> 64 then
     begin
       FLastError := 'ValidateVersionFile: line[2] length=' + IntToStr(Length(Lines[2])) + ' expected 64';
@@ -281,8 +253,6 @@ begin
   end;
 end;
 
-{ --- ParseVersionFile --- }
-
 function TUpdateChecker.ParseVersionFile(const Content: string): TUpdateInfo;
 var
   Lines: TStringList;
@@ -298,23 +268,16 @@ begin
   Result.DLLInfo.DateTime       := '';
   Result.DLLInfo.SHA256Hash     := '';
   Result.DLLInfo.FileSize       := 0;
-
   if not ValidateVersionFile(Content) then
   begin
     Log('ParseVersionFile: validation FAILED - ' + FLastError);
     Exit;
   end;
-
   Lines := TStringList.Create;
   try
     Lines.Text := Content;
-    // Rimuove righe vuote finali (già fatto in Validate, ma per sicurezza)
     while (Lines.Count > 0) and (Trim(Lines[Lines.Count - 1]) = '') do
       Lines.Delete(Lines.Count - 1);
-
-    // [0] build  [1] catpaq-date  [2] catpaq-hash  [3] catpaq-size
-    // [4] exe-date  [5] exe-hash  [6] exe-size
-    // [7] dll-date  [8] dll-hash  [9] dll-size
     Result.CatpaqInfo.BuildNumber := StrToIntDef(Lines[0], 0);
     Result.CatpaqInfo.DateTime    := Lines[1];
     Result.CatpaqInfo.SHA256Hash  := LowerCase(Lines[2]);
@@ -327,21 +290,20 @@ begin
     if Lines.Count > 9 then
       Result.DLLInfo.FileSize := StrToInt64Def(Lines[9], 0);
     Result.Valid := True;
-
     Log('ParseVersionFile: OK');
     Log('  Catpaq build=' + IntToStr(Result.CatpaqInfo.BuildNumber) +
         ' date=' + Result.CatpaqInfo.DateTime +
         ' size=' + IntToStr(Result.CatpaqInfo.FileSize));
-    Log('  zpaqfranz.exe date=' + Result.EXEInfo.DateTime +
+    Log('  zpaqfranz date=' + Result.EXEInfo.DateTime +
         ' size=' + IntToStr(Result.EXEInfo.FileSize));
+    {$IFDEF WINDOWS}
     Log('  zpaqfranz.dll date=' + Result.DLLInfo.DateTime +
         ' size=' + IntToStr(Result.DLLInfo.FileSize));
+    {$ENDIF}
   finally
     Lines.Free;
   end;
 end;
-
-{ --- CheckForUpdate --- }
 
 function TUpdateChecker.CheckForUpdate(CurrentBuild: Integer;
   out UpdateInfo: TUpdateInfo): Boolean;
@@ -349,119 +311,152 @@ var
   Content:    TBytes;
   StrContent: string;
 begin
-  Content    := nil;  // inizializza esplicitamente per FPC 3.2.2
+  Content    := nil;
   Result     := False;
   SetLength(Content, 0);
   StrContent := '';
   UpdateInfo.Valid := False;
-
   Log('CheckForUpdate: currentBuild=' + IntToStr(CurrentBuild));
   Log('CheckForUpdate: fetching ' + FVersionURL);
-
   if not DownloadFile(FVersionURL, Content) then
   begin
     Log('CheckForUpdate: FAILED to download version file - ' + FLastError);
     Exit;
   end;
-
   SetLength(StrContent, Length(Content));
   if Length(Content) > 0 then
     Move(Content[0], StrContent[1], Length(Content));
-
-  // Mostra contenuto raw nel log (sostituisce newline per leggibilità)
   Log('CheckForUpdate: raw content (' + IntToStr(Length(StrContent)) + ' chars): [' +
       StringReplace(StringReplace(StrContent, #13, '', [rfReplaceAll]),
                     #10, '|', [rfReplaceAll]) + ']');
-
   UpdateInfo := ParseVersionFile(StrContent);
-
   if not UpdateInfo.Valid then
   begin
     Log('CheckForUpdate: version file parse FAILED - ' + FLastError);
     Exit;
   end;
-
   Result := UpdateInfo.CatpaqInfo.BuildNumber > CurrentBuild;
   Log('CheckForUpdate: serverBuild=' + IntToStr(UpdateInfo.CatpaqInfo.BuildNumber) +
       ' currentBuild=' + IntToStr(CurrentBuild) +
       ' => updateAvailable=' + BoolToStr(Result, 'TRUE', 'FALSE'));
 end;
 
-{ --- DownloadUpdate --- }
-
 function TUpdateChecker.DownloadUpdate(const UpdateInfo: TUpdateInfo;
   out CatpaqPath, EXEPath, DLLPath: string): Boolean;
 var
-  CatpaqData, EXEData, DLLData: TBytes;
-  CatpaqHash, EXEHash, DLLHash: string;
+  CatpaqData, EXEData: TBytes;
+  CatpaqHash, EXEHash: string;
   FS: TFileStream;
+  {$IFDEF WINDOWS}
+  DLLData: TBytes;
+  DLLHash: string;
+  {$ENDIF}
 begin
   CatpaqData := nil;
   EXEData    := nil;
-  DLLData    := nil;
   Result     := False;
   CatpaqPath := '';
   EXEPath    := '';
   DLLPath    := '';
 
-  // --- catpaq.exe ---
+  // --- catpaq ---
+  {$IFDEF WINDOWS}
   Log('DownloadUpdate: downloading catpaq.exe...');
   if not DownloadFile(FBaseURL + 'catpaq.exe', CatpaqData) then
   begin Log('DownloadUpdate: FAILED catpaq.exe - ' + FLastError); Exit; end;
-  Log('DownloadUpdate: catpaq.exe got=' + IntToStr(Length(CatpaqData)) + ' expected=' + IntToStr(UpdateInfo.CatpaqInfo.FileSize));
+  {$ELSE}
+  Log('DownloadUpdate: downloading catpaq...');
+  if not DownloadFile(FBaseURL + 'catpaq', CatpaqData) then
+  begin Log('DownloadUpdate: FAILED catpaq - ' + FLastError); Exit; end;
+  {$ENDIF}
   if Length(CatpaqData) <> UpdateInfo.CatpaqInfo.FileSize then
   begin
-    FLastError := 'catpaq.exe size mismatch: got ' + IntToStr(Length(CatpaqData)) + ' expected ' + IntToStr(UpdateInfo.CatpaqInfo.FileSize);
+    FLastError := 'catpaq size mismatch: got ' + IntToStr(Length(CatpaqData)) +
+                  ' expected ' + IntToStr(UpdateInfo.CatpaqInfo.FileSize);
     Log('DownloadUpdate: FAILED - ' + FLastError); Exit;
   end;
   CatpaqHash := SHA256Bytes(CatpaqData);
-  Log('DownloadUpdate: catpaq.exe hash=' + CatpaqHash + ' expected=' + UpdateInfo.CatpaqInfo.SHA256Hash);
   if CatpaqHash <> UpdateInfo.CatpaqInfo.SHA256Hash then
-  begin FLastError := 'catpaq.exe hash mismatch'; Log('DownloadUpdate: FAILED - ' + FLastError); Exit; end;
+  begin
+    FLastError := 'catpaq hash mismatch';
+    Log('DownloadUpdate: FAILED - ' + FLastError); Exit;
+  end;
 
-  // --- zpaqfranz.exe ---
+  // --- zpaqfranz ---
+  {$IFDEF WINDOWS}
   Log('DownloadUpdate: downloading zpaqfranz.exe...');
   if not DownloadFile(FBaseURL + 'zpaqfranz.exe', EXEData) then
   begin Log('DownloadUpdate: FAILED zpaqfranz.exe - ' + FLastError); Exit; end;
-  Log('DownloadUpdate: zpaqfranz.exe got=' + IntToStr(Length(EXEData)) + ' expected=' + IntToStr(UpdateInfo.EXEInfo.FileSize));
+  {$ELSE}
+  Log('DownloadUpdate: downloading zpaqfranz...');
+  if not DownloadFile(FBaseURL + 'zpaqfranz', EXEData) then
+  begin Log('DownloadUpdate: FAILED zpaqfranz - ' + FLastError); Exit; end;
+  {$ENDIF}
   if Length(EXEData) <> UpdateInfo.EXEInfo.FileSize then
   begin
-    FLastError := 'zpaqfranz.exe size mismatch: got ' + IntToStr(Length(EXEData)) + ' expected ' + IntToStr(UpdateInfo.EXEInfo.FileSize);
+    FLastError := 'zpaqfranz size mismatch: got ' + IntToStr(Length(EXEData)) +
+                  ' expected ' + IntToStr(UpdateInfo.EXEInfo.FileSize);
     Log('DownloadUpdate: FAILED - ' + FLastError); Exit;
   end;
   EXEHash := SHA256Bytes(EXEData);
-  Log('DownloadUpdate: zpaqfranz.exe hash=' + EXEHash + ' expected=' + UpdateInfo.EXEInfo.SHA256Hash);
   if EXEHash <> UpdateInfo.EXEInfo.SHA256Hash then
-  begin FLastError := 'zpaqfranz.exe hash mismatch'; Log('DownloadUpdate: FAILED - ' + FLastError); Exit; end;
+  begin
+    FLastError := 'zpaqfranz hash mismatch';
+    Log('DownloadUpdate: FAILED - ' + FLastError); Exit;
+  end;
 
-  // --- zpaqfranz.dll ---
+  {$IFDEF WINDOWS}
+  // --- zpaqfranz.dll (solo Windows) ---
+  DLLData := nil;
   Log('DownloadUpdate: downloading zpaqfranz.dll...');
   if not DownloadFile(FBaseURL + 'zpaqfranz.dll', DLLData) then
   begin Log('DownloadUpdate: FAILED zpaqfranz.dll - ' + FLastError); Exit; end;
-  Log('DownloadUpdate: zpaqfranz.dll got=' + IntToStr(Length(DLLData)) + ' expected=' + IntToStr(UpdateInfo.DLLInfo.FileSize));
   if Length(DLLData) <> UpdateInfo.DLLInfo.FileSize then
   begin
-    FLastError := 'zpaqfranz.dll size mismatch: got ' + IntToStr(Length(DLLData)) + ' expected ' + IntToStr(UpdateInfo.DLLInfo.FileSize);
+    FLastError := 'zpaqfranz.dll size mismatch: got ' + IntToStr(Length(DLLData)) +
+                  ' expected ' + IntToStr(UpdateInfo.DLLInfo.FileSize);
     Log('DownloadUpdate: FAILED - ' + FLastError); Exit;
   end;
   DLLHash := SHA256Bytes(DLLData);
-  Log('DownloadUpdate: zpaqfranz.dll hash=' + DLLHash + ' expected=' + UpdateInfo.DLLInfo.SHA256Hash);
   if DLLHash <> UpdateInfo.DLLInfo.SHA256Hash then
-  begin FLastError := 'zpaqfranz.dll hash mismatch'; Log('DownloadUpdate: FAILED - ' + FLastError); Exit; end;
+  begin
+    FLastError := 'zpaqfranz.dll hash mismatch';
+    Log('DownloadUpdate: FAILED - ' + FLastError); Exit;
+  end;
+  {$ENDIF}
 
   // --- Salva in temp ---
+  {$IFDEF WINDOWS}
   CatpaqPath := FTempDir + 'catpaq.exe';
   EXEPath    := FTempDir + 'zpaqfranz.exe';
   DLLPath    := FTempDir + 'zpaqfranz.dll';
+  {$ELSE}
+  CatpaqPath := FTempDir + 'catpaq';
+  EXEPath    := FTempDir + 'zpaqfranz';
+  DLLPath    := '';
+  {$ENDIF}
   Log('DownloadUpdate: saving to ' + FTempDir);
 
   try
     FS := TFileStream.Create(CatpaqPath, fmCreate);
-    try if Length(CatpaqData) > 0 then FS.Write(CatpaqData[0], Length(CatpaqData)); finally FS.Free; end;
+    try
+      if Length(CatpaqData) > 0 then FS.Write(CatpaqData[0], Length(CatpaqData));
+    finally FS.Free; end;
+
     FS := TFileStream.Create(EXEPath, fmCreate);
-    try if Length(EXEData) > 0 then FS.Write(EXEData[0], Length(EXEData)); finally FS.Free; end;
+    try
+      if Length(EXEData) > 0 then FS.Write(EXEData[0], Length(EXEData));
+    finally FS.Free; end;
+
+    {$IFDEF WINDOWS}
     FS := TFileStream.Create(DLLPath, fmCreate);
-    try if Length(DLLData) > 0 then FS.Write(DLLData[0], Length(DLLData)); finally FS.Free; end;
+    try
+      if Length(DLLData) > 0 then FS.Write(DLLData[0], Length(DLLData));
+    finally FS.Free; end;
+    Log('DownloadUpdate: OK - all 3 files verified and saved');
+    {$ELSE}
+    Log('DownloadUpdate: OK - catpaq and zpaqfranz verified and saved');
+    {$ENDIF}
   except
     on E: Exception do
     begin
@@ -471,17 +466,18 @@ begin
   end;
 
   Result := True;
-  Log('DownloadUpdate: OK - all 3 files verified and saved');
 end;
 
-{ --- DownloadFile_Public --- }
-// Scarica solo zpaqfranz.exe (usato da TryDownloadDLL quando manca solo l'EXE)
-
 function TUpdateChecker.DownloadFile_Public(out EXEData: TBytes): Boolean;
+{$IFDEF WINDOWS}
+const ExeName = 'zpaqfranz.exe';
+{$ELSE}
+const ExeName = 'zpaqfranz';
+{$ENDIF}
 begin
   EXEData := nil;
-  Log('DownloadFile_Public: downloading ' + FBaseURL + 'zpaqfranz.exe');
-  Result := DownloadFile(FBaseURL + 'zpaqfranz.exe', EXEData);
+  Log('DownloadFile_Public: downloading ' + FBaseURL + ExeName);
+  Result := DownloadFile(FBaseURL + ExeName, EXEData);
   if not Result then
     Log('DownloadFile_Public: FAILED - ' + FLastError)
   else
@@ -491,22 +487,24 @@ end;
 function TUpdateChecker.DownloadDLLFile(out DLLData: TBytes): Boolean;
 begin
   DLLData := nil;
+  {$IFDEF WINDOWS}
   Log('DownloadDLLFile: downloading ' + FBaseURL + 'zpaqfranz.dll');
   Result := DownloadFile(FBaseURL + 'zpaqfranz.dll', DLLData);
   if not Result then
     Log('DownloadDLLFile: FAILED - ' + FLastError)
   else
     Log('DownloadDLLFile: OK (' + IntToStr(Length(DLLData)) + ' bytes)');
+  {$ELSE}
+  Result := False;
+  FLastError := 'DownloadDLLFile: not applicable on this platform';
+  Log(FLastError);
+  {$ENDIF}
 end;
-
-{ --- CalculateSHA256FromBytes_Public --- }
 
 function TUpdateChecker.CalculateSHA256FromBytes_Public(const Data: TBytes): string;
 begin
   Result := SHA256Bytes(Data);
 end;
-
-{ --- ApplyUpdate --- }
 
 function TUpdateChecker.ApplyUpdate(const NewCatpaqPath, NewEXEPath, NewDLLPath: string): Boolean;
 {$IFDEF WINDOWS}
@@ -565,32 +563,27 @@ begin
   end;
 
   {$ELSE}
+  // macOS / Linux: copia catpaq e zpaqfranz, imposta permessi eseguibili
+  Log('ApplyUpdate: copying on Unix/macOS...');
+  if not FileUtil.CopyFile(NewCatpaqPath, ParamStr(0)) then
   begin
-    Log('ApplyUpdate: copying on Unix...');
-    if not FileUtil.CopyFile(NewCatpaqPath, ParamStr(0)) then
-    begin
-      FLastError := 'CopyFile failed: ' + NewCatpaqPath + ' -> ' + ParamStr(0);
-      Log('ApplyUpdate: FAILED - ' + FLastError); Exit;
-    end;
-    if not FileUtil.CopyFile(NewEXEPath,
-         ExtractFilePath(ParamStr(0)) + 'zpaqfranz') then
-    begin
-      FLastError := 'CopyFile failed: ' + NewEXEPath + ' -> zpaqfranz';
-      Log('ApplyUpdate: FAILED - ' + FLastError); Exit;
-    end;
-    if not FileUtil.CopyFile(NewDLLPath,
-         ExtractFilePath(ParamStr(0)) + 'libzpaqfranz.so') then
-    begin
-      FLastError := 'CopyFile failed: ' + NewDLLPath + ' -> libzpaqfranz.so';
-      Log('ApplyUpdate: FAILED - ' + FLastError); Exit;
-    end;
-    {$IFDEF UNIX}
-    FpChmod(ParamStr(0), &755);
-    FpChmod(ExtractFilePath(ParamStr(0)) + 'zpaqfranz', &755);
-    {$ENDIF}
-    Result := True;
-    Log('ApplyUpdate: OK');
+    FLastError := 'CopyFile failed: ' + NewCatpaqPath + ' -> ' + ParamStr(0);
+    Log('ApplyUpdate: FAILED - ' + FLastError);
+    Exit;
   end;
+  if not FileUtil.CopyFile(NewEXEPath,
+       ExtractFilePath(ParamStr(0)) + 'zpaqfranz') then
+  begin
+    FLastError := 'CopyFile failed: ' + NewEXEPath + ' -> zpaqfranz';
+    Log('ApplyUpdate: FAILED - ' + FLastError);
+    Exit;
+  end;
+  {$IFDEF UNIX}
+  FpChmod(ParamStr(0), &755);
+  FpChmod(ExtractFilePath(ParamStr(0)) + 'zpaqfranz', &755);
+  {$ENDIF}
+  Result := True;
+  Log('ApplyUpdate: OK');
   {$ENDIF}
 end;
 

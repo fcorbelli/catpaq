@@ -5,90 +5,103 @@ unit uzpaqbridge;
 interface
 
 uses
-  Classes, SysUtils, AsyncProcess, Process, Forms, ucatpaqtypes;
+  Classes, SysUtils, Process, Forms, ucatpaqtypes;
 
 type
-  TZpaqCompleteEvent = procedure(Sender: TObject; ExitCode: Integer) of object;
-  TZpaqLogEvent = procedure(Sender: TObject; const ALine: string) of object;
-  TZpaqProgressEvent = procedure(Sender: TObject; Percent: Integer; const AMsg: string) of object;
+  TZpaqCompleteEvent  = procedure(Sender: TObject; ExitCode: Integer) of object;
+  TZpaqLogEvent       = procedure(Sender: TObject; const ALine: string) of object;
+  TZpaqProgressEvent  = procedure(Sender: TObject; Percent: Integer; const AMsg: string) of object;
+
+  { Forward declaration }
+  TZpaqBridge = class;
+
+  { TZpaqReaderThread
+    Legge stdout+stderr del processo zpaqfranz in un thread dedicato.
+    Questo è il pattern corretto su macOS, dove TAsyncProcess/OnReadData
+    non funziona affidabilmente con le pipe kqueue. }
+  TZpaqReaderThread = class(TThread)
+  private
+    FBridge:  TZpaqBridge;
+    FProcess: TProcess;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(ABridge: TZpaqBridge; AProcess: TProcess);
+  end;
 
   { TZpaqBridge }
   TZpaqBridge = class
   private
-    FProcess: TAsyncProcess;
-    FBusy: Boolean;
-    FExePath: string;
-    FIsDataMode: Boolean;
+    FProcess:       TProcess;
+    FReaderThread:  TZpaqReaderThread;
+    FBusy:          Boolean;
+    FExePath:       string;
+    FIsDataMode:    Boolean;
 
-    // --- Telemetria in tempo reale ---
-    FProgFilePerc: Integer;
+    // --- Telemetria ---
+    FProgFilePerc:   Integer;
     FProgGlobalPerc: Integer;
-    FProgLavorati: Int64;
-    FProgTotali: Int64;
-    FProgETA: Integer;
-
-    // --- Fase caricamento LIST ---
-    // 'DEC' = decompressione indice (barra 0→100)
-    // 'PRG' = enumerazione file (barra 100→0)
-    FListPhase: string;
-    FProgDecPerc: Integer;
+    FProgLavorati:   Int64;
+    FProgTotali:     Int64;
+    FProgETA:        Integer;
+    FListPhase:      string;
+    FProgDecPerc:    Integer;
 
     FOnComplete: TZpaqCompleteEvent;
-    FOnLog: TZpaqLogEvent;
+    FOnLog:      TZpaqLogEvent;
     FOnProgress: TZpaqProgressEvent;
 
-    FOutputBuffer: string;
-    FLogBuffer: TStringList;
+    FLogBuffer:  TStringList;
     FDataBuffer: TStringList;
-
-    procedure ProcessReadData(Sender: TObject);
-    procedure ProcessTerminate(Sender: TObject);
 
     procedure TriggerComplete(Data: PtrInt);
     procedure TriggerProgress(Data: PtrInt);
 
-    procedure ProcessLogLine(const S: string);
   public
     constructor Create;
-    destructor Destroy; override;
+    destructor  Destroy; override;
 
-    function LoadDLL(const APath: string = ''): Boolean;
-    function RunCommandAsync(const ACmd: string): Boolean;
-    procedure AbortCommand; // Nuova funzione per interrompere brutalmente
+    // Chiamato dal TZpaqReaderThread: processa una singola riga di output
+    procedure ProcessLogLine(const S: string);
+    // Chiamato dal TZpaqReaderThread al termine: notifica la GUI
+    procedure OnThreadDone(ExitCode: Integer);
 
-    function FlushLogBuffer: TStringList;
+    function  LoadDLL(const APath: string = ''): Boolean;
+    function  RunCommandAsync(const ACmd: string): Boolean;
+    procedure AbortCommand;
+
+    function FlushLogBuffer:  TStringList;
     function FlushDataBuffer: TStringList;
     function ParsePakkaList(AData: TStringList): TArchiveData;
 
-    property DLLPath: string read FExePath;
-    property Busy: Boolean read FBusy;
+    property DLLPath:    string  read FExePath;
+    property Busy:       Boolean read FBusy;
     property IsDataMode: Boolean read FIsDataMode write FIsDataMode;
 
-    // Proprietà esposte per leggere la telemetria da TfrmMain
-    property ProgFilePerc: Integer read FProgFilePerc;
+    property ProgFilePerc:   Integer read FProgFilePerc;
     property ProgGlobalPerc: Integer read FProgGlobalPerc;
-    property ProgLavorati: Int64 read FProgLavorati;
-    property ProgTotali: Int64 read FProgTotali;
-    property ProgETA: Integer read FProgETA;
-    property ProgDecPerc: Integer read FProgDecPerc;
-    property ListPhase: string read FListPhase;
+    property ProgLavorati:   Int64   read FProgLavorati;
+    property ProgTotali:     Int64   read FProgTotali;
+    property ProgETA:        Integer read FProgETA;
+    property ProgDecPerc:    Integer read FProgDecPerc;
+    property ListPhase:      string  read FListPhase;
 
     property OnComplete: TZpaqCompleteEvent read FOnComplete write FOnComplete;
-    property OnLog: TZpaqLogEvent read FOnLog write FOnLog;
+    property OnLog:      TZpaqLogEvent      read FOnLog      write FOnLog;
     property OnProgress: TZpaqProgressEvent read FOnProgress write FOnProgress;
   end;
 
 var
   ZpaqBridgeMain: TZpaqBridge = nil;
-  ZpaqBridge: TZpaqBridge = nil;
+  ZpaqBridge:     TZpaqBridge = nil;
 
 implementation
 
 uses
-  StrUtils;
+  StrUtils, uglobals;
 
 { ============================================================================ }
-{ Funzione di Logging Interna                                                  }
+{ Logging interno su file                                                       }
 { ============================================================================ }
 
 procedure ZpaqDbgLog(const AMsg: string);
@@ -97,6 +110,7 @@ var
   F: TextFile;
   T: string;
 begin
+  if not DebugMode then Exit;   { log disabilitato → esce subito }
   T := FormatDateTime('hh:nn:ss.zzz', Now) + ' [ProcessBridge] ' + AMsg;
   LogFile := ExtractFilePath(ParamStr(0)) + 'catpaq_bridge_debug.txt';
   AssignFile(F, LogFile);
@@ -112,51 +126,164 @@ begin
 end;
 
 { ============================================================================ }
-{ TZpaqBridge (Versione TAsyncProcess + Telemetria Catpaq)                     }
+{ Parser command line per macOS/Linux                                           }
+{ TProcess.Parameters.Add() vuole un token per chiamata.                       }
+{ AddText() NON fa parsing shell su Unix.                                      }
+{ Esempio: 'pakka "/path/file.zpaq" -all'                                      }
+{   → Add('pakka')  Add('/path/file.zpaq')  Add('-all')                        }
+{ ============================================================================ }
+
+procedure SplitCmdToParams(const ACmd: string; Params: TStrings);
+var
+  i: Integer;
+  Token: string;
+  InQuote: Boolean;
+begin
+  Token   := '';
+  InQuote := False;
+  for i := 1 to Length(ACmd) do
+  begin
+    if ACmd[i] = '"' then
+      InQuote := not InQuote
+    else if (ACmd[i] = ' ') and not InQuote then
+    begin
+      if Token <> '' then
+      begin
+        Params.Add(Token);
+        Token := '';
+      end;
+    end
+    else
+      Token := Token + ACmd[i];
+  end;
+  if Token <> '' then
+    Params.Add(Token);
+end;
+
+{ ============================================================================ }
+{ TZpaqReaderThread                                                             }
+{ ============================================================================ }
+
+constructor TZpaqReaderThread.Create(ABridge: TZpaqBridge; AProcess: TProcess);
+begin
+  inherited Create(True); // CreateSuspended
+  FBridge  := ABridge;
+  FProcess := AProcess;
+  FreeOnTerminate := False;
+end;
+
+procedure TZpaqReaderThread.Execute;
+const
+  BufSize = 4096;
+var
+  Buffer:    array[0..BufSize - 1] of Byte;
+  BytesRead: Integer;
+  LineAccum: string;
+  i:         Integer;
+  Ch:        Char;
+  ExitCode:  Integer;
+begin
+  LineAccum := '';
+
+  repeat
+    if Terminated then Break;
+
+    BytesRead := 0;
+    try
+      if FProcess.Output.NumBytesAvailable > 0 then
+        BytesRead := FProcess.Output.Read(Buffer, BufSize)
+      else if FProcess.Running then
+        Sleep(10)
+      else
+      begin
+        // Processo terminato: svuota gli ultimi byte rimasti nel pipe
+        BytesRead := FProcess.Output.Read(Buffer, BufSize);
+        if BytesRead = 0 then Break;
+      end;
+    except
+      Break;
+    end;
+
+    for i := 0 to BytesRead - 1 do
+    begin
+      Ch := Char(Buffer[i]);
+      if Ch = #10 then
+      begin
+        if (Length(LineAccum) > 0) and (LineAccum[Length(LineAccum)] = #13) then
+          SetLength(LineAccum, Length(LineAccum) - 1);
+        if LineAccum <> '' then
+          FBridge.ProcessLogLine(LineAccum);
+        LineAccum := '';
+      end
+      else if Ch <> #13 then
+        LineAccum := LineAccum + Ch;
+    end;
+  until False;
+
+  // Ultima riga senza newline
+  if LineAccum <> '' then
+    FBridge.ProcessLogLine(LineAccum);
+
+  // Attendi exit code
+  ExitCode := -1;
+  try
+    while FProcess.Running do Sleep(5);
+    ExitCode := FProcess.ExitStatus;
+  except
+  end;
+
+  ZpaqDbgLog('Thread lettura terminato. ExitCode=' + IntToStr(ExitCode));
+  FBridge.OnThreadDone(ExitCode);
+end;
+
+{ ============================================================================ }
+{ TZpaqBridge                                                                  }
 { ============================================================================ }
 
 constructor TZpaqBridge.Create;
 begin
   inherited Create;
-  FProcess := nil;
-  FBusy := False;
-  FIsDataMode := False;
-  FExePath := '';
+  FProcess      := nil;
+  FReaderThread := nil;
+  FBusy         := False;
+  FIsDataMode   := False;
+  FExePath      := '';
 
-  // Inizializzazione Telemetria
-  FProgFilePerc := 0;
+  FProgFilePerc   := 0;
   FProgGlobalPerc := 0;
-  FProgLavorati := 0;
-  FProgTotali := 0;
-  FProgETA := 0;
-  FListPhase := '';
-  FProgDecPerc := 0;
+  FProgLavorati   := 0;
+  FProgTotali     := 0;
+  FProgETA        := 0;
+  FListPhase      := '';
+  FProgDecPerc    := 0;
 
-  FLogBuffer := TStringList.Create;
+  FLogBuffer  := TStringList.Create;
   FDataBuffer := TStringList.Create;
 
   if ZpaqBridgeMain = nil then
   begin
     ZpaqBridgeMain := Self;
-    ZpaqBridge := Self;
+    ZpaqBridge     := Self;
   end;
 end;
 
 destructor TZpaqBridge.Destroy;
 begin
+  if Assigned(FReaderThread) then
+  begin
+    FReaderThread.Terminate;
+    FReaderThread.WaitFor;
+    FreeAndNil(FReaderThread);
+  end;
   if Assigned(FProcess) then
   begin
-    if FProcess.Running then
-      FProcess.Terminate(0);
-    FProcess.Free;
+    if FProcess.Running then FProcess.Terminate(0);
+    FreeAndNil(FProcess);
   end;
-
   FLogBuffer.Free;
   FDataBuffer.Free;
-
   if ZpaqBridgeMain = Self then ZpaqBridgeMain := nil;
-  if ZpaqBridge = Self then ZpaqBridge := nil;
-
+  if ZpaqBridge     = Self then ZpaqBridge     := nil;
   inherited;
 end;
 
@@ -164,21 +291,15 @@ function TZpaqBridge.LoadDLL(const APath: string): Boolean;
 var
   TestPath: string;
 begin
-  // Questa funzione si chiama ancora LoadDLL per compatibilità, ma cerca l'eseguibile!
   if APath <> '' then FExePath := APath;
 
   if FExePath = '' then
   begin
     {$IFDEF WINDOWS}
     TestPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.exe';
-    {$ENDIF}
-    {$IFDEF LINUX}
+    {$ELSE}
     TestPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz';
     {$ENDIF}
-    {$IFDEF DARWIN}
-    TestPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz';
-    {$ENDIF}
-
     if FileExists(TestPath) then FExePath := TestPath;
   end;
 
@@ -193,40 +314,50 @@ begin
   if FBusy then Exit;
   if not LoadDLL then Exit;
 
-  // Pulizia processo precedente
+  // Cleanup ciclo precedente
+  if Assigned(FReaderThread) then
+  begin
+    FReaderThread.Terminate;
+    FReaderThread.WaitFor;
+    FreeAndNil(FReaderThread);
+  end;
   if Assigned(FProcess) then
   begin
     if FProcess.Running then FProcess.Terminate(0);
     FreeAndNil(FProcess);
   end;
 
-  FOutputBuffer := '';
-
-  // Reset variabili telemetria
-  FProgFilePerc := 0;
+  // Reset telemetria
+  FProgFilePerc   := 0;
   FProgGlobalPerc := 0;
-  FProgLavorati := 0;
-  FProgTotali := 0;
-  FProgETA := 0;
-  FListPhase := '';
-  FProgDecPerc := 0;
+  FProgLavorati   := 0;
+  FProgTotali     := 0;
+  FProgETA        := 0;
+  FListPhase      := '';
+  FProgDecPerc    := 0;
 
-  // Creazione nuovo processo isolato
-  FProcess := TAsyncProcess.Create(nil);
+  FProcess := TProcess.Create(nil);
   FProcess.Executable := FExePath;
+
+  {$IFDEF WINDOWS}
   FProcess.Parameters.AddText(ACmd);
-
-  // Opzioni critiche per intercettare lo standard output in modo invisibile
   FProcess.Options := [poUsePipes, poNoConsole, poStderrToOutPut];
-
-  FProcess.OnReadData := @ProcessReadData;
-  FProcess.OnTerminate := @ProcessTerminate;
+  {$ELSE}
+  SplitCmdToParams(ACmd, FProcess.Parameters);
+  FProcess.Options := [poUsePipes, poStderrToOutPut];
+  {$ENDIF}
 
   FBusy := True;
 
   try
-    ZpaqDbgLog('Avvio TAsyncProcess con argomenti: ' + ACmd);
+    ZpaqDbgLog('Avvio TProcess con argomenti: ' + ACmd);
     FProcess.Execute;
+    ZpaqDbgLog('Processo avviato. PID=' + IntToStr(FProcess.ProcessID));
+
+    // Avvia thread di lettura
+    FReaderThread := TZpaqReaderThread.Create(Self, FProcess);
+    FReaderThread.Start;
+
     Result := True;
   except
     on E: Exception do
@@ -243,9 +374,14 @@ begin
   if Assigned(FProcess) and FProcess.Running then
   begin
     ZpaqDbgLog('Richiesto ABORT: Kill del processo...');
-    FProcess.Terminate(0); // L'OS interviene e uccide istantaneamente l'exe
-    // Questo causerà lo scatto immediato di OnTerminate
+    FProcess.Terminate(0);
   end;
+end;
+
+procedure TZpaqBridge.OnThreadDone(ExitCode: Integer);
+begin
+  ZpaqDbgLog('OnThreadDone: ExitCode=' + IntToStr(ExitCode));
+  Application.QueueAsyncCall(@TriggerComplete, ExitCode);
 end;
 
 procedure TZpaqBridge.ProcessLogLine(const S: string);
@@ -253,11 +389,9 @@ var
   Parts: TStringArray;
   CalcoloPerc: Double;
 begin
-  // --- FASE 1: decompressione indice (@SPK@DEC@perc@lavorati@totali@eta) ---
   if Pos('@SPK@DEC@', S) = 1 then
   begin
     Parts := S.Split(['@']);
-    // [0='', 1='SPK', 2='DEC', 3='Perc', 4='Lavorati', 5='Totali', 6='ETA']
     if Length(Parts) >= 7 then
     begin
       FListPhase      := 'DEC';
@@ -266,21 +400,12 @@ begin
       FProgTotali     := StrToInt64Def(Trim(Parts[5]), 0);
       FProgETA        := StrToIntDef(Trim(Parts[6]), 0);
       FProgGlobalPerc := FProgDecPerc;
-
-      ZpaqDbgLog('SPK@DEC perc=' + IntToStr(FProgDecPerc) +
-                 ' lav=' + IntToStr(FProgLavorati) +
-                 ' tot=' + IntToStr(FProgTotali) +
-                 ' eta=' + IntToStr(FProgETA));
-
       Application.QueueAsyncCall(@TriggerProgress, 0);
     end;
   end
-
-  // --- FASE 2: enumerazione file (@SPK@PRG@perc@lavorati@totali@eta) ---
   else if Pos('@SPK@PRG@', S) = 1 then
   begin
     Parts := S.Split(['@']);
-    // [0='', 1='SPK', 2='PRG', 3='Perc_File', 4='Lavorati', 5='Totali', 6='ETA']
     if Length(Parts) >= 7 then
     begin
       FListPhase    := 'PRG';
@@ -288,94 +413,49 @@ begin
       FProgLavorati := StrToInt64Def(Trim(Parts[4]), 0);
       FProgTotali   := StrToInt64Def(Trim(Parts[5]), 0);
       FProgETA      := StrToIntDef(Trim(Parts[6]), 0);
-
-      // PRG: la barra scende da 100 verso 0 man mano che i file vengono processati
       if FProgTotali > 0 then
       begin
-        CalcoloPerc := (FProgLavorati / FProgTotali) * 100.0;
+        CalcoloPerc     := (FProgLavorati / FProgTotali) * 100.0;
         FProgGlobalPerc := 100 - Trunc(CalcoloPerc);
       end
       else
         FProgGlobalPerc := 100;
-
-      ZpaqDbgLog('SPK@PRG perc=' + IntToStr(FProgFilePerc) +
-                 ' global=' + IntToStr(FProgGlobalPerc) +
-                 ' lav=' + IntToStr(FProgLavorati) +
-                 ' tot=' + IntToStr(FProgTotali) +
-                 ' eta=' + IntToStr(FProgETA));
-
       Application.QueueAsyncCall(@TriggerProgress, 0);
     end;
   end
-
+  else if Pos('@SPK@EXT@', S) = 1 then
+  begin
+    { Formato: @SPK@EXT@<perc_globale>@<td>@<ts>@<eta_sec>@<i_percentuale>
+      Emesso da print_progress() in modalità detailed (extract/test senza -catpaqmode).
+      Parts[0]='' Parts[1]='' Parts[2]='' Parts[3]=perc Parts[4]=td
+      Parts[5]=ts Parts[6]=eta Parts[7]=i_perc }
+    Parts := S.Split(['@']);
+    if Length(Parts) >= 7 then
+    begin
+      FListPhase      := 'EXT';
+      FProgGlobalPerc := StrToIntDef(Trim(Parts[3]), 0);
+      FProgLavorati   := StrToInt64Def(Trim(Parts[4]), 0);
+      FProgTotali     := StrToInt64Def(Trim(Parts[5]), 0);
+      FProgETA        := StrToIntDef(Trim(Parts[6]), 0);
+      if Length(Parts) >= 8 then
+        FProgFilePerc := StrToIntDef(Trim(Parts[7]), 0)
+      else
+        FProgFilePerc := 0;
+      Application.QueueAsyncCall(@TriggerProgress, 0);
+    end;
+  end
   else
   begin
-    // Tutto il resto va nei buffer dati/log normali
+    { Filtra tag di telemetria non riconosciuti (es. @DEC@DEC@, future varianti)
+      che non devono comparire nel log visibile. Criterio: riga che inizia con '@'
+      e contiene almeno un secondo '@' — è certamente un marker interno. }
+    if (Length(S) > 1) and (S[1] = '@') and (Pos('@', S, 2) > 1) then
+      Exit;  { scarta silenziosamente }
     if FIsDataMode then
       FDataBuffer.Add(S)
     else
       FLogBuffer.Add(S);
   end;
-end;
-
-procedure TZpaqBridge.ProcessReadData(Sender: TObject);
-var
-  Buffer: array[0..2047] of Char;
-  BytesRead, i: Integer;
-  LineStr: string;
-begin
-  if not Assigned(FProcess) then Exit;
-
-  // Leggi tutto ciò che c'è nel pipe del processo C++
-  while FProcess.Output.NumBytesAvailable > 0 do
-  begin
-    BytesRead := FProcess.Output.Read(Buffer, SizeOf(Buffer));
-    if BytesRead > 0 then
-      FOutputBuffer := FOutputBuffer + Copy(Buffer, 0, BytesRead);
-  end;
-
-  // Spezza il buffer in righe e mandale al parser
-  while Length(FOutputBuffer) > 0 do
-  begin
-    i := Pos(#10, FOutputBuffer);
-    if i = 0 then i := Pos(#13, FOutputBuffer);
-
-    if i > 0 then
-    begin
-      LineStr := Copy(FOutputBuffer, 1, i - 1);
-      Delete(FOutputBuffer, 1, i);
-
-      // Elimina eventuali \r o \n residui successivi
-      while (Length(FOutputBuffer) > 0) and (FOutputBuffer[1] in [#10, #13]) do
-        Delete(FOutputBuffer, 1, 1);
-
-      if LineStr <> '' then ProcessLogLine(LineStr);
-    end
-    else
-      Break; // La riga non è ancora completa, aspettiamo
-  end;
-end;
-
-procedure TZpaqBridge.ProcessTerminate(Sender: TObject);
-var
-  FinalExitCode: PtrInt;
-begin
-  ZpaqDbgLog('Processo terminato. Eseguo lettura finale dei buffer.');
-
-  // Svuota le ultimissime righe rimaste
-  ProcessReadData(Sender);
-  if FOutputBuffer <> '' then
-  begin
-    ProcessLogLine(FOutputBuffer);
-    FOutputBuffer := '';
-  end;
-
-  FinalExitCode := FProcess.ExitStatus;
-
-  ZpaqDbgLog('ExitCode processo: ' + IntToStr(FinalExitCode));
-
-  // Deleghiamo alla GUI per evitare problemi di concorrenza
-  Application.QueueAsyncCall(@TriggerComplete, FinalExitCode);
 end;
 
 procedure TZpaqBridge.TriggerComplete(Data: PtrInt);
@@ -387,7 +467,6 @@ end;
 
 procedure TZpaqBridge.TriggerProgress(Data: PtrInt);
 begin
-  // Notifichiamo il form che i dati della telemetria sono cambiati
   if Assigned(FOnProgress) then
     FOnProgress(Self, FProgGlobalPerc, '');
 end;
@@ -406,22 +485,16 @@ begin
   FDataBuffer.Clear;
 end;
 
-{ --- Parsing --- }
-
 function TZpaqBridge.ParsePakkaList(AData: TStringList): TArchiveData;
 var
   CurrentLine: string;
   LineIdx: Integer;
-
   VerNum: Integer;
   DateLine, SizeLine, NameLine: string;
   SizeVal: Int64;
   bIsDeleted: Boolean;
-
   LastFileName: string;
   CurrentFileIdx: Integer;
-
-  // Ottimizzazioni per la memoria
   ActualFileCount: Integer;
   MaxPossibleFiles: Integer;
 
@@ -443,7 +516,6 @@ begin
   Result.TotalLines := 0;
   SetLength(Result.GlobalVersions, 0);
 
-  // 1. PRE-ALLOCAZIONE: evita la frammentazione della memoria
   MaxPossibleFiles := (AData.Count div 4) + 10;
   SetLength(Result.Files, MaxPossibleFiles);
   ActualFileCount := 0;
@@ -457,8 +529,8 @@ begin
       SetLength(Result.GlobalVersions, Length(Result.GlobalVersions) + 1);
       with Result.GlobalVersions[High(Result.GlobalVersions)] do
       begin
-         DateStr := Trim(Copy(CurrentLine, 2, Length(CurrentLine)));
-         Number := StrToIntDef(ExtractWord(1, DateStr, [' ']), 0);
+        DateStr := Trim(Copy(CurrentLine, 2, Length(CurrentLine)));
+        Number  := StrToIntDef(ExtractWord(1, DateStr, [' ']), 0);
       end;
       Continue;
     end;
@@ -478,7 +550,7 @@ begin
 
       if not GetNextValidLine(SizeLine) then Break;
       SizeLine := StringReplace(Trim(SizeLine), '.', '', [rfReplaceAll]);
-      SizeVal := StrToInt64Def(SizeLine, 0);
+      SizeVal  := StrToInt64Def(SizeLine, 0);
 
       if not GetNextValidLine(NameLine) then Break;
 
@@ -489,25 +561,19 @@ begin
       end
       else LastFileName := NameLine;
 
-      // 2. MAGIA O(1): Il comando pakka restituisce le versioni vicine!
-      // Basta guardare solo ed esclusivamente l'ultimo file aggiunto.
       CurrentFileIdx := -1;
       if ActualFileCount > 0 then
-      begin
         if Result.Files[ActualFileCount - 1].FileName = NameLine then
           CurrentFileIdx := ActualFileCount - 1;
-      end;
 
-      // Se non è uguale all'ultimo, è un file nuovo
       if CurrentFileIdx = -1 then
       begin
         CurrentFileIdx := ActualFileCount;
-        Inc(ActualFileCount); // Usiamo l'array pre-allocato, velocità istantanea
+        Inc(ActualFileCount);
         Result.Files[CurrentFileIdx].FileName := NameLine;
         SetLength(Result.Files[CurrentFileIdx].Versions, 0);
       end;
 
-      // 3. Inserimento della versione per questo file
       with Result.Files[CurrentFileIdx] do
       begin
         SetLength(Versions, Length(Versions) + 1);
@@ -524,125 +590,7 @@ begin
     end;
   end;
 
-  // 4. Fine: Riduciamo l'array scartando lo spazio pre-allocato non usato
   SetLength(Result.Files, ActualFileCount);
 end;
-{
-function TZpaqBridge.ParsePakkaList(AData: TStringList): TArchiveData;
-var
-  CleanData: TStringList;
-  CurrentLine: string;
-  LineIdx, i: Integer;
-  VerNum: Integer;
-  DateLine, SizeLine, NameLine: string;
-  SizeVal: Int64;
-  IsDeleted: Boolean;
-  LastFileName: string;
-  CurrentFileIdx: Integer;
 
-  function GetNextValidLine(var OutLine: string): Boolean;
-  begin
-    Result := False;
-    while LineIdx < CleanData.Count do
-    begin
-      OutLine := CleanData[LineIdx];
-      Inc(LineIdx);
-      if Trim(OutLine) = '' then Continue;
-      if Pos('$$$NULL-W', OutLine) = 1 then Continue;
-      Result := True;
-      Exit;
-    end;
-  end;
-
-begin
-  Result.TotalLines := 0;
-  SetLength(Result.GlobalVersions, 0);
-  SetLength(Result.Files, 0);
-
-  CleanData := TStringList.Create;
-  try
-    CleanData.Text := AData.Text;
-
-    CurrentLine  := ''; DateLine := ''; SizeLine := '';
-    NameLine     := ''; LastFileName := ''; LineIdx := 0;
-
-    while GetNextValidLine(CurrentLine) do
-    begin
-      if (Length(CurrentLine) > 1) and (CurrentLine[1] = '|') then
-      begin
-        SetLength(Result.GlobalVersions, Length(Result.GlobalVersions) + 1);
-        with Result.GlobalVersions[High(Result.GlobalVersions)] do
-        begin
-          DateStr := Trim(Copy(CurrentLine, 2, Length(CurrentLine)));
-          Number  := StrToIntDef(ExtractWord(1, DateStr, [' ']), 0);
-        end;
-        Continue;
-      end;
-
-      if (Length(CurrentLine) > 1) and (CurrentLine[1] = '+') then
-      begin
-        Result.TotalLines := StrToIntDef(Copy(CurrentLine, 2, Length(CurrentLine)), 0);
-        Continue;
-      end;
-
-      if (Length(CurrentLine) > 1) and (CurrentLine[1] = '-') and (CurrentLine[2] in ['0'..'9']) then
-      begin
-        VerNum := StrToIntDef(Copy(CurrentLine, 2, Length(CurrentLine)), 0);
-
-        if not GetNextValidLine(DateLine) then Break;
-        IsDeleted := (Trim(DateLine) = 'D');
-
-        if not GetNextValidLine(SizeLine) then Break;
-        SizeLine := StringReplace(Trim(SizeLine), '.', '', [rfReplaceAll]);
-        SizeVal  := StrToInt64Def(SizeLine, 0);
-
-        if not GetNextValidLine(NameLine) then Break;
-
-        if NameLine = '?' then
-        begin
-          if LastFileName = '' then NameLine := 'UNKNOWN_FILE_ERROR'
-          else NameLine := LastFileName;
-        end
-        else
-          LastFileName := NameLine;
-
-        CurrentFileIdx := -1;
-        for i := High(Result.Files) downto 0 do
-        begin
-          if Result.Files[i].FileName = NameLine then
-          begin
-            CurrentFileIdx := i;
-            Break;
-          end;
-        end;
-
-        if CurrentFileIdx = -1 then
-        begin
-          SetLength(Result.Files, Length(Result.Files) + 1);
-          CurrentFileIdx := High(Result.Files);
-          Result.Files[CurrentFileIdx].FileName := NameLine;
-          SetLength(Result.Files[CurrentFileIdx].Versions, 0);
-        end;
-
-        with Result.Files[CurrentFileIdx] do
-        begin
-          SetLength(Versions, Length(Versions) + 1);
-          with Versions[High(Versions)] do
-          begin
-            Version   := VerNum;
-            IsDeleted := IsDeleted;
-            Size      := SizeVal;
-            if IsDeleted then DateStr := 'DELETED'
-            else DateStr := DateLine;
-          end;
-        end;
-
-        Continue;
-      end;
-    end;
-  finally
-    CleanData.Free;
-  end;
-end;
- }
 end.

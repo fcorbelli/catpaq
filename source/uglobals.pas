@@ -15,6 +15,30 @@ uses
   Classes, SysUtils, Forms, Controls, IniFiles, Math;
 
 { ---------------------------------------------------------------------------- }
+{  INI path                                                                     }
+{ ---------------------------------------------------------------------------- }
+
+{ Restituisce il path corretto del file INI di catpaq per la piattaforma:
+    Windows : accanto all'eseguibile (catpaq.ini)
+    macOS   : ~/Library/Application Support/catpaq/catpaq.ini
+    Linux   : ~/.config/catpaq/catpaq.ini  (AppImage-safe)
+  Crea la directory se non esiste. }
+function GetCatpaqIniPath: string;
+
+{ ---------------------------------------------------------------------------- }
+{  Debug mode                                                                   }
+{ ---------------------------------------------------------------------------- }
+
+{ Variabile globale: True = scrittura log bridge su file abilitata.
+  Letta dalla sezione [Debug] chiave BridgeLog del file INI di catpaq.
+  Default: False (log disabilitato). }
+var
+  DebugMode: Boolean = False;
+
+{ Legge il valore di DebugMode dal file INI. Da chiamare dopo GetCatpaqIniPath. }
+procedure LoadDebugMode(const AIniPath: string);
+
+{ ---------------------------------------------------------------------------- }
 {  Window geometry                                                              }
 { ---------------------------------------------------------------------------- }
 
@@ -32,6 +56,43 @@ function LangStr(ALang: TStringList; const AKey, ADefault: string): string;
 function ScanLanguageFiles: TStringList;
 
 implementation
+
+{ ============================================================================ }
+{  INI path                                                                    }
+{ ============================================================================ }
+
+function GetCatpaqIniPath: string;
+begin
+  {$IFDEF DARWIN}
+  Result := GetUserDir + 'Library/Application Support/catpaq/catpaq.ini';
+  {$ELSE}
+  {$IFDEF LINUX}
+  Result := GetUserDir + '.config/catpaq/catpaq.ini';
+  {$ELSE}
+  // Windows: accanto all'eseguibile
+  Result := ChangeFileExt(Application.ExeName, '.ini');
+  {$ENDIF}
+  {$ENDIF}
+  ForceDirectories(ExtractFilePath(Result));
+end;
+
+{ ============================================================================ }
+{  Debug mode                                                                  }
+{ ============================================================================ }
+
+procedure LoadDebugMode(const AIniPath: string);
+var
+  Ini: TIniFile;
+begin
+  DebugMode := False;  { default: disabilitato }
+  if (AIniPath = '') or not FileExists(AIniPath) then Exit;
+  Ini := TIniFile.Create(AIniPath);
+  try
+    DebugMode := Ini.ReadBool('Debug', 'BridgeLog', False);
+  finally
+    Ini.Free;
+  end;
+end;
 
 { ============================================================================ }
 {  Window geometry                                                              }
