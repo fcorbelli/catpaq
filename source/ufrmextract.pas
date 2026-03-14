@@ -160,17 +160,18 @@ var
 begin
   if FMode = emTest then
   begin
-    Caption              := 'Test archive';
-    lblDestPath.Caption  := 'Temp test folder:';
-    btnOK.Caption        := 'Test';
-    SelectDirectoryDialog1.Title := 'Select temp test folder';
+    Caption              := S('extract_title_test', 'Test archive');
+    lblDestPath.Caption  := S('extract_lbl_temp_folder', 'Temp test folder:');
+    btnOK.Caption        := S('extract_btn_test', 'Test');
+    SelectDirectoryDialog1.Title := S('extract_dlg_temp_folder', 'Select temp test folder');
     pnlExtraFields.Visible := False;
   end
   else
   begin
-    lblDestPath.Caption  := 'Destination folder:';
-    btnOK.Caption        := 'Extract';
-    SelectDirectoryDialog1.Title := 'Select destination folder';
+    Caption              := S('extract_title_extract', 'Extract from archive');
+    lblDestPath.Caption  := S('extract_lbl_dest_folder', 'Destination folder:');
+    btnOK.Caption        := S('extract_btn_extract', 'Extract');
+    SelectDirectoryDialog1.Title := S('extract_dlg_dest_folder', 'Select destination folder');
     pnlExtraFields.Visible := True;
   end;
 
@@ -224,6 +225,8 @@ begin
   FMode := emExtract;
 
   KeyPreview := True;
+  btnCancel.Caption := S('extract_btn_cancel', 'Cancel');
+  btnAbort.Caption  := S('extract_btn_abort', 'ABORT');
 
   LoadRecentPaths;
   UpdateUIForMode;
@@ -324,16 +327,16 @@ begin
   FPasswordFranzen := APasswordFranzen;
 
   if FFileName <> '' then
-    Caption := 'Extract: ' + ExtractFileName(ExcludeTrailingPathDelimiter(FFileName))
+    Caption := S('extract_title_file', 'Extract') + ': ' + ExtractFileName(ExcludeTrailingPathDelimiter(FFileName))
   else
-    Caption := 'Extract from archive';
+    Caption := S('extract_title_extract', 'Extract from archive');
 
   if FFileName <> '' then
-    lblInfo.Caption := 'File: ' + FFileName +
-                       '   Version: ' + IntToStr(FVersion)
+    lblInfo.Caption := S('extract_lbl_file', 'File') + ': ' + FFileName +
+                       '   ' + S('extract_lbl_version', 'Version') + ': ' + IntToStr(FVersion)
   else
-    lblInfo.Caption := 'Archive: ' + ExtractFileName(FArchivePath) +
-                       '   (extract everything)';
+    lblInfo.Caption := S('extract_lbl_archive', 'Archive') + ': ' + ExtractFileName(FArchivePath) +
+                       '   (' + S('extract_lbl_everything', 'extract everything') + ')';
 
   UpdateUIForMode;
 end;
@@ -344,7 +347,7 @@ procedure TfrmExtract.SetExtractionParamsAll(
   const APasswordFranzen: string);
 begin
   SetExtractionParams(AArchivePath, '', -1, APasswordAES, APasswordFranzen);
-  Caption := 'Extract everything from archive';
+  Caption := S('extract_title_all', 'Extract everything from archive');
 end;
 
 procedure TfrmExtract.SetTestParams(
@@ -359,8 +362,8 @@ begin
   FPasswordAES     := APasswordAES;
   FPasswordFranzen := APasswordFranzen;
 
-  Caption          := 'Test archive: ' + ExtractFileName(AArchivePath);
-  lblInfo.Caption  := 'Archive: ' + ExtractFileName(AArchivePath);
+  Caption          := S('extract_title_test', 'Test archive') + ': ' + ExtractFileName(AArchivePath);
+  lblInfo.Caption  := S('extract_lbl_archive', 'Archive') + ': ' + ExtractFileName(AArchivePath);
 
   UpdateUIForMode;
 end;

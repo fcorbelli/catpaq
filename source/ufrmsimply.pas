@@ -330,8 +330,8 @@ begin
   // -------------------------------------------------------------------------
   // Buttons
   // -------------------------------------------------------------------------
-  btnOK.Caption          := S('simply_btn_ok',             'OK');
-  btnCancel.Caption      := S('simply_btn_cancel',         'Cancel');
+  btnOK.Caption          := S('simply_btn_ok',             '&OK');
+  btnCancel.Caption      := S('simply_btn_cancel',         '&Exit');
   btnAbort.Caption       := S('simply_btn_abort',          'ABORT');
   btnArchiveName.Caption := S('simply_btn_archive_browse', 'Archive Name');
 

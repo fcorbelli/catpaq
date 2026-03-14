@@ -1,55 +1,55 @@
 object frmSimply: TfrmSimply
   Left = 873
-  Height = 1609
+  Height = 1287
   Top = 650
-  Width = 1856
+  Width = 1485
   Caption = 'Add to Archive'
-  ClientHeight = 1609
-  ClientWidth = 1856
-  DesignTimePPI = 240
+  ClientHeight = 1287
+  ClientWidth = 1485
+  DesignTimePPI = 192
   Font.CharSet = ANSI_CHARSET
-  Font.Height = -48
+  Font.Height = -38
   Font.Pitch = fpVariable
   Font.Quality = fqDraft
   Position = poScreenCenter
-  LCLVersion = '4.4.0.0'
+  LCLVersion = '4.0.0.4'
   OnClose = FormClose
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnShow = FormShow
   object pnlBottom: TPanel
     Left = 0
-    Height = 186
-    Top = 1423
-    Width = 1856
+    Height = 149
+    Top = 1138
+    Width = 1485
     Align = alBottom
     BevelInner = bvRaised
     BevelOuter = bvLowered
     BevelWidth = 2
     BorderWidth = 2
-    ClientHeight = 186
-    ClientWidth = 1856
+    ClientHeight = 149
+    ClientWidth = 1485
     TabOrder = 0
     object Panel3: TPanel
       Left = 6
-      Height = 174
+      Height = 137
       Top = 6
-      Width = 224
+      Width = 179
       Align = alLeft
-      ClientHeight = 174
-      ClientWidth = 224
+      ClientHeight = 137
+      ClientWidth = 179
       TabOrder = 0
       object btnOK: TButton
         Left = 0
-        Height = 162
+        Height = 130
         Hint = 'Start the add-to-archive operation with the current settings'
         Top = 0
-        Width = 218
+        Width = 174
         Anchors = [akTop, akRight]
         Caption = 'OK'
         Default = True
         Font.CharSet = ANSI_CHARSET
-        Font.Height = -120
+        Font.Height = -96
         Font.Pitch = fpVariable
         Font.Quality = fqDraft
         ParentFont = False
@@ -58,25 +58,25 @@ object frmSimply: TfrmSimply
       end
     end
     object Panel4: TPanel
-      Left = 1616
-      Height = 174
+      Left = 1292
+      Height = 137
       Top = 6
-      Width = 234
+      Width = 187
       Align = alRight
-      ClientHeight = 174
-      ClientWidth = 234
+      ClientHeight = 137
+      ClientWidth = 187
       TabOrder = 1
       object btnCancel: TButton
-        Left = 8
-        Height = 168
+        Left = 7
+        Height = 134
         Hint = 'Close this window. If an operation is running it will not be interrupted'
         Top = 0
-        Width = 218
+        Width = 174
         Anchors = [akTop, akRight]
         Cancel = True
         Caption = 'Exit'
         Font.CharSet = ANSI_CHARSET
-        Font.Height = -120
+        Font.Height = -96
         Font.Pitch = fpVariable
         Font.Quality = fqDraft
         ModalResult = 2
@@ -85,14 +85,14 @@ object frmSimply: TfrmSimply
       end
     end
     object memHelp: TMemo
-      Left = 230
-      Height = 174
+      Left = 185
+      Height = 137
       Hint = 'Hover over any control to see its description here'
       Top = 6
-      Width = 1386
+      Width = 1107
       Align = alClient
       Font.CharSet = ANSI_CHARSET
-      Font.Height = -47
+      Font.Height = -38
       Font.Name = 'Courier New'
       Font.Pitch = fpFixed
       Font.Quality = fqDraft
@@ -105,49 +105,49 @@ object frmSimply: TfrmSimply
   end
   object pnlTop: TPanel
     Left = 0
-    Height = 174
+    Height = 139
     Top = 0
-    Width = 1856
+    Width = 1485
     Align = alTop
-    ClientHeight = 174
-    ClientWidth = 1856
+    ClientHeight = 139
+    ClientWidth = 1485
     TabOrder = 1
     OnResize = pnlTopResize
     object btnArchiveName: TButton
-      Left = 20
-      Height = 62
+      Left = 16
+      Height = 50
       Hint = 'Browse or type a destination archive filename (.zpaq or .zpaq.franzen)'
-      Top = 20
-      Width = 300
+      Top = 16
+      Width = 240
       Caption = 'Archive Name'
       TabOrder = 0
       OnClick = btnArchiveNameClick
     end
     object cmbArchiveName: TComboBox
-      Left = 340
-      Height = 73
+      Left = 272
+      Height = 63
       Hint = 'Path to the target archive. Recent archives are listed here. Type or select one'
-      Top = 16
-      Width = 911
+      Top = 13
+      Width = 729
       Anchors = [akTop, akLeft, akRight]
-      ItemHeight = 65
+      ItemHeight = 0
       TabOrder = 1
       OnChange = cmbArchiveNameChange
     end
     object lblAES: TLabel
-      Left = 20
-      Height = 65
-      Top = 99
-      Width = 301
+      Left = 16
+      Height = 53
+      Top = 79
+      Width = 257
       Caption = 'AES Password:'
       Visible = False
     end
     object edtPasswordAES1: TEdit
-      Left = 340
-      Height = 73
+      Left = 272
+      Height = 63
       Hint = 'AES password (first entry). Must match the confirmation field'
-      Top = 95
-      Width = 500
+      Top = 76
+      Width = 400
       EchoMode = emPassword
       PasswordChar = '*'
       TabOrder = 2
@@ -156,11 +156,11 @@ object frmSimply: TfrmSimply
       OnExit = edtToExit
     end
     object edtPasswordAES2: TEdit
-      Left = 848
-      Height = 73
+      Left = 678
+      Height = 63
       Hint = 'AES password confirmation. Must be identical to the first field'
-      Top = 95
-      Width = 500
+      Top = 76
+      Width = 400
       EchoMode = emPassword
       PasswordChar = '*'
       TabOrder = 3
@@ -169,18 +169,18 @@ object frmSimply: TfrmSimply
       OnExit = edtToExit
     end
     object lblFranzen: TLabel
-      Left = 1360
-      Height = 65
-      Top = 88
-      Width = 385
+      Left = 1088
+      Height = 53
+      Top = 70
+      Width = 332
       Caption = 'Franzen Password:'
       Visible = False
     end
     object edtPasswordFranzen2: TEdit
-      Left = 2264
-      Height = 73
-      Top = 95
-      Width = 500
+      Left = 1811
+      Height = 63
+      Top = 76
+      Width = 400
       EchoMode = emPassword
       PasswordChar = '*'
       TabOrder = 4
@@ -189,10 +189,10 @@ object frmSimply: TfrmSimply
       OnExit = edtToExit
     end
     object edtPasswordFranzen1: TEdit
-      Left = 1736
-      Height = 73
-      Top = 95
-      Width = 500
+      Left = 1389
+      Height = 63
+      Top = 76
+      Width = 400
       EchoMode = emPassword
       PasswordChar = '*'
       TabOrder = 5
@@ -202,175 +202,175 @@ object frmSimply: TfrmSimply
   end
   object PanelSettings: TPanel
     Left = 0
-    Height = 1030
-    Top = 174
-    Width = 1856
+    Height = 824
+    Top = 139
+    Width = 1485
     Align = alClient
     BevelOuter = bvNone
-    ClientHeight = 1030
-    ClientWidth = 1856
+    ClientHeight = 824
+    ClientWidth = 1485
     TabOrder = 2
     object pnlTo: TPanel
       Left = 0
-      Height = 95
+      Height = 76
       Top = 0
-      Width = 1856
+      Width = 1485
       Align = alTop
-      ClientHeight = 95
-      ClientWidth = 1856
+      ClientHeight = 76
+      ClientWidth = 1485
       TabOrder = 0
       OnResize = pnlToResize
       object edtTo: TEdit
         Tag = 1
-        Left = 336
-        Height = 73
+        Left = 269
+        Height = 63
         Hint = '-to Replace the stored path prefix with this value.'
-        Top = 10
-        Width = 164
+        Top = 8
+        Width = 131
         TabOrder = 0
         OnEnter = edtToEnter
         OnExit = edtToExit
       end
       object lblfind: TLabel
-        Left = 536
-        Height = 65
-        Top = 16
-        Width = 90
+        Left = 429
+        Height = 52
+        Top = 13
+        Width = 72
         AutoSize = False
         Caption = 'Find'
       end
       object edtFind: TEdit
         Tag = 1
-        Left = 976
-        Height = 73
+        Left = 781
+        Height = 63
         Hint = '-find Path fragment to search for when rewriting internal archive paths.'
-        Top = 10
-        Width = 500
+        Top = 8
+        Width = 400
         TabOrder = 1
         OnEnter = edtToEnter
         OnExit = edtToExit
       end
       object lblreplace: TLabel
-        Left = 1520
-        Height = 65
-        Top = 14
-        Width = 164
+        Left = 1216
+        Height = 53
+        Top = 11
+        Width = 138
         Caption = 'Replace'
       end
       object edtReplace: TEdit
         Tag = 1
-        Left = 1704
-        Height = 73
+        Left = 1363
+        Height = 63
         Hint = '-replace The string that replaces the Find fragment in internal archive paths.'
-        Top = 10
-        Width = 500
+        Top = 8
+        Width = 400
         TabOrder = 2
         OnEnter = edtToEnter
         OnExit = edtToExit
       end
       object lblto: TLabel
-        Left = 20
-        Height = 65
-        Top = 16
-        Width = 48
+        Left = 16
+        Height = 53
+        Top = 13
+        Width = 41
         Caption = 'To'
       end
     end
     object pnlFlags: TPanel
       Left = 0
-      Height = 935
-      Top = 95
-      Width = 468
+      Height = 748
+      Top = 76
+      Width = 374
       Align = alLeft
-      ClientHeight = 935
-      ClientWidth = 468
+      ClientHeight = 748
+      ClientWidth = 374
       TabOrder = 1
       object chkForce: TCheckBox
         Tag = 1
-        Left = 20
-        Height = 69
+        Left = 16
+        Height = 55
         Hint = '-force Force add even if files are unchanged.'
-        Top = 24
-        Width = 153
+        Top = 19
+        Width = 121
         Caption = 'Force'
         TabOrder = 0
       end
       object chkForce1: TCheckBox
         Tag = 1
-        Left = 20
-        Height = 69
+        Left = 16
+        Height = 55
         Hint = '-verbose Show detailed output during the operation.'
-        Top = 93
-        Width = 211
+        Top = 74
+        Width = 168
         Caption = 'Verbose'
         TabOrder = 1
       end
       object chkForce2: TCheckBox
         Tag = 1
-        Left = 20
-        Height = 69
+        Left = 16
+        Height = 55
         Hint = '-longpath Enable support for paths longer than 255 characters in Windows'
-        Top = 434
-        Width = 391
+        Top = 347
+        Width = 314
         Caption = 'Longpath (>255)'
         TabOrder = 2
       end
       object chkForce3: TCheckBox
         Tag = 1
-        Left = 20
-        Height = 69
+        Left = 16
+        Height = 55
         Hint = '-space Ignore free disk space check before writing the archive.'
-        Top = 162
-        Width = 403
+        Top = 130
+        Width = 333
         Caption = 'Ignore free space'
         TabOrder = 3
       end
       object chkForce10: TCheckBox
         Tag = 1
-        Left = 20
-        Height = 69
+        Left = 16
+        Height = 55
         Hint = '-forcewindows Force storing Windows stuff'
-        Top = 365
-        Width = 361
+        Top = 292
+        Width = 292
         Caption = 'Force Windows'
         TabOrder = 4
       end
       object chkForce11: TCheckBox
         Tag = 1
-        Left = 20
-        Height = 69
+        Left = 16
+        Height = 55
         Hint = '-xls Force compatibility with old Microsoft Office formats (.xls, .doc, .ppt).'
-        Top = 231
-        Width = 372
+        Top = 185
+        Width = 302
         Caption = 'Force old Office'
         TabOrder = 5
       end
       object chkForce14: TCheckBox
         Tag = 1
-        Left = 20
-        Height = 69
+        Left = 16
+        Height = 55
         Hint = '-vss Use Volume Shadow Copy Service to back up open/locked files.'
-        Top = 503
-        Width = 211
+        Top = 402
+        Width = 166
         Caption = 'Use VSS'
         TabOrder = 6
       end
       object chkForce16: TCheckBox
         Tag = 1
-        Left = 20
-        Height = 69
+        Left = 16
+        Height = 55
         Hint = '-nozfs Disable .zfs'' snapshot folders'
-        Top = 296
-        Width = 172
+        Top = 237
+        Width = 135
         Caption = 'No zfs'
         TabOrder = 7
       end
     end
     object pgOptions: TPageControl
-      Left = 468
-      Height = 935
-      Top = 95
-      Width = 1388
+      Left = 374
+      Height = 748
+      Top = 76
+      Width = 1111
       ActivePage = tbStandard
       Align = alClient
       TabIndex = 0
@@ -378,17 +378,17 @@ object frmSimply: TfrmSimply
       OnChange = pgOptionsChange
       object tbStandard: TTabSheet
         Caption = 'Standard'
-        ClientHeight = 839
-        ClientWidth = 1368
+        ClientHeight = 681
+        ClientWidth = 1107
         OnContextPopup = tbStandardContextPopup
         OnResize = tbStandardResize
         object cmbHash: TComboBox
-          Left = 344
-          Height = 73
+          Left = 275
+          Height = 61
           Hint = 'Hash algorithm used to verify file integrity inside the archive. XXHASH is fast and recommended'
-          Top = 163
-          Width = 504
-          ItemHeight = 65
+          Top = 130
+          Width = 403
+          ItemHeight = 0
           ItemIndex = 1
           Items.Strings = (
             '(NONE)'
@@ -410,62 +410,62 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object lblCompressionLevel1: TLabel
-          Left = 226
-          Height = 65
-          Top = 168
-          Width = 105
+          Left = 181
+          Height = 53
+          Top = 134
+          Width = 90
           Caption = 'Hash'
         end
         object cmbCompressionLevel: TComboBox
-          Left = 344
-          Height = 73
+          Left = 275
+          Height = 65
           Hint = 'Compression level: 0=Store (fastest, no compression) up to 5=Top (slowest, best ratio). Default is 1'
-          Top = 83
-          Width = 504
-          ItemHeight = 65
+          Top = 66
+          Width = 403
+          ItemHeight = 0
           Style = csDropDownList
           TabOrder = 1
           OnChange = cmbCompressionLevelChange
         end
         object lblCompressionLevel: TLabel
-          Left = 56
-          Height = 65
-          Top = 89
-          Width = 276
+          Left = 45
+          Height = 53
+          Top = 71
+          Width = 234
           Caption = 'Compression'
         end
         object cmbArchiveFormat: TComboBox
-          Left = 344
-          Height = 73
+          Left = 275
+          Height = 65
           Hint = 'Archive format: Normal (no encryption), AES (symmetric encryption), Franzen (alternative encryption), or both'
-          Top = 6
-          Width = 504
-          ItemHeight = 65
+          Top = 5
+          Width = 403
+          ItemHeight = 0
           Style = csDropDownList
           TabOrder = 2
           OnChange = cmbArchiveFormatChange
         end
         object lblArchiveFormat: TLabel
-          Left = 16
-          Height = 65
-          Top = 10
-          Width = 319
+          Left = 13
+          Height = 53
+          Top = 8
+          Width = 270
           Caption = 'Archive Format'
         end
         object lblCompressionLevel2: TLabel
-          Left = 136
-          Height = 65
-          Top = 241
-          Width = 195
+          Left = 109
+          Height = 53
+          Top = 193
+          Width = 165
           Caption = 'Multipart'
         end
         object cmbMultipart: TComboBox
-          Left = 344
-          Height = 73
+          Left = 275
+          Height = 61
           Hint = 'Multipart mode: split the archive into numbered parts (e.g. _? for up to 9 parts). NO = single archive'
-          Top = 236
-          Width = 504
-          ItemHeight = 65
+          Top = 189
+          Width = 403
+          ItemHeight = 0
           ItemIndex = 0
           Items.Strings = (
             '(NO-single archive)'
@@ -481,19 +481,19 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object lblCompressionLevel3: TLabel
-          Left = 144
-          Height = 65
-          Top = 320
-          Width = 188
+          Left = 115
+          Height = 53
+          Top = 256
+          Width = 157
           Caption = 'Chunked'
         end
         object cmbChunked: TComboBox
-          Left = 344
-          Height = 73
+          Left = 275
+          Height = 61
           Hint = 'Chunked mode: limit each archive chunk to a specific size (useful for optical media or FAT32 drives)'
-          Top = 315
-          Width = 504
-          ItemHeight = 65
+          Top = 252
+          Width = 403
+          ItemHeight = 0
           ItemIndex = 0
           Items.Strings = (
             'NO'
@@ -517,83 +517,83 @@ object frmSimply: TfrmSimply
         end
         object chkForce5: TCheckBox
           Tag = 1
-          Left = 856
-          Height = 69
+          Left = 685
+          Height = 55
           Hint = '-home Store files using only a single-level path relative to home directory.'
-          Top = 324
-          Width = 314
+          Top = 259
+          Width = 252
           Caption = '1-level home'
           TabOrder = 5
         end
         object chkForce4: TCheckBox
           Tag = 1
-          Left = 856
-          Height = 69
+          Left = 685
+          Height = 55
           Hint = '-715 Use the zpaq 7.15 file format for compatibility with older tools.'
-          Top = 8
-          Width = 376
+          Top = 6
+          Width = 308
           Caption = 'zpaq 7.15 mode'
           TabOrder = 6
         end
         object chkForce6: TCheckBox
           Tag = 1
-          Left = 856
-          Height = 69
+          Left = 685
+          Height = 55
           Hint = '-stdout Write archive output to stdout for piping to another process.'
-          Top = 240
-          Width = 434
+          Top = 192
+          Width = 353
           Caption = 'Stdout-compatible'
           TabOrder = 7
         end
         object lblArchiveFormat3: TLabel
-          Left = 120
-          Height = 65
-          Top = 402
-          Width = 208
+          Left = 96
+          Height = 53
+          Top = 322
+          Width = 177
           Caption = 'Comment'
         end
         object edtcomment: TEdit
           Tag = 1
-          Left = 344
-          Height = 73
+          Left = 275
+          Height = 63
           Hint = '-comment Embed this text as a comment inside the archive.'
-          Top = 398
-          Width = 504
+          Top = 318
+          Width = 403
           TabOrder = 8
         end
         object chkForce15: TCheckBox
           Tag = 1
-          Left = 856
-          Height = 69
+          Left = 685
+          Height = 55
           Hint = '-nochecksum Skip checksum calculation to speed up archiving (less safe).'
-          Top = 166
-          Width = 323
+          Top = 133
+          Width = 263
           Caption = 'No checksum'
           TabOrder = 9
         end
         object chkForce12: TCheckBox
           Tag = 1
-          Left = 856
-          Height = 69
+          Left = 685
+          Height = 55
           Hint = '-store Store files without compression (equivalent to level 0).'
-          Top = 85
-          Width = 266
+          Top = 68
+          Width = 213
           Caption = 'Store  only'
           TabOrder = 10
         end
       end
       object tbAdvanced: TTabSheet
         Caption = 'Advanced'
-        ClientHeight = 839
-        ClientWidth = 1368
+        ClientHeight = 681
+        ClientWidth = 1107
         OnContextPopup = tbAdvancedContextPopup
         object cmbThreads: TComboBox
-          Left = 427
-          Height = 73
+          Left = 342
+          Height = 61
           Hint = 'Select the number of concurrent threads'
-          Top = 8
-          Width = 504
-          ItemHeight = 65
+          Top = 6
+          Width = 403
+          ItemHeight = 0
           Items.Strings = (
             'MAX'
             '1'
@@ -618,26 +618,26 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object lblCompressionLevel4: TLabel
-          Left = 242
-          Height = 65
-          Top = 12
-          Width = 166
+          Left = 194
+          Height = 53
+          Top = 10
+          Width = 142
           Caption = 'Threads'
         end
         object lblCompressionLevel5: TLabel
-          Left = 115
-          Height = 65
-          Top = 93
-          Width = 293
+          Left = 92
+          Height = 53
+          Top = 74
+          Width = 250
           Caption = 'Fragment size'
         end
         object cmbFragment: TComboBox
-          Left = 427
-          Height = 73
+          Left = 342
+          Height = 61
           Hint = 'Select fragment size. Smaller number=smaller size, but higher workload'
-          Top = 89
-          Width = 504
-          ItemHeight = 65
+          Top = 71
+          Width = 403
+          ItemHeight = 0
           Items.Strings = (
             'DEFAULT'
             '0 1kb'
@@ -657,19 +657,19 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object lblCompressionLevel6: TLabel
-          Left = 202
-          Height = 65
-          Top = 178
-          Width = 206
+          Left = 162
+          Height = 53
+          Top = 142
+          Width = 173
           Caption = 'Block size'
         end
         object cmbBlocksize: TComboBox
-          Left = 427
-          Height = 73
+          Left = 342
+          Height = 61
           Hint = 'Average size of blocks'
-          Top = 174
-          Width = 504
-          ItemHeight = 65
+          Top = 139
+          Width = 403
+          ItemHeight = 0
           Items.Strings = (
             'DEFAULT'
             '0 1MB'
@@ -688,18 +688,18 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object lblCompressionLevel7: TLabel
-          Left = 16
-          Height = 65
-          Top = 263
-          Width = 392
+          Left = 13
+          Height = 53
+          Top = 210
+          Width = 336
           Caption = 'Version timestamp'
         end
         object edtTimestamp: TMaskEdit
-          Left = 427
-          Height = 73
+          Left = 342
+          Height = 63
           Hint = 'Set timestamp of the next version'
-          Top = 259
-          Width = 496
+          Top = 207
+          Width = 397
           EnableSets = False
           MaxLength = 19
           TabOrder = 3
@@ -709,51 +709,51 @@ object frmSimply: TfrmSimply
         end
         object chkUtc: TCheckBox
           Tag = 1
-          Left = 64
-          Height = 69
+          Left = 51
+          Height = 55
           Hint = '-utc Force utc time'
-          Top = 368
-          Width = 338
+          Top = 294
+          Width = 277
           Caption = 'Force utc time'
           TabOrder = 4
         end
         object chkUtc1: TCheckBox
           Tag = 1
-          Left = 64
-          Height = 69
+          Left = 51
+          Height = 55
           Hint = '-touch Force touch of every file (convert file formats)'
-          Top = 448
-          Width = 286
+          Top = 358
+          Width = 232
           Caption = 'Force touch'
           TabOrder = 5
         end
         object chkUtc2: TCheckBox
           Tag = 1
-          Left = 464
-          Height = 69
+          Left = 371
+          Height = 55
           Hint = '-kill Do dangerous stuff'
-          Top = 368
-          Width = 102
+          Top = 294
+          Width = 78
           Caption = 'Kill'
           TabOrder = 6
         end
         object chkUtc3: TCheckBox
           Tag = 1
-          Left = 464
-          Height = 69
+          Left = 371
+          Height = 55
           Hint = '-zero Fill with zero the files (for debug)'
-          Top = 456
-          Width = 135
+          Top = 365
+          Width = 105
           Caption = 'Zero'
           TabOrder = 7
         end
         object chkUtc4: TCheckBox
           Tag = 1
-          Left = 64
-          Height = 69
+          Left = 51
+          Height = 55
           Hint = '-collision Check for SHA-1 collisions'
-          Top = 520
-          Width = 219
+          Top = 416
+          Width = 175
           Caption = 'Collision'
           TabOrder = 8
         end
@@ -761,23 +761,23 @@ object frmSimply: TfrmSimply
       object tbSelection: TTabSheet
         Hint = 'Only files (use space as delimiter)'
         Caption = 'Selection'
-        ClientHeight = 839
-        ClientWidth = 1368
+        ClientHeight = 681
+        ClientWidth = 1107
         OnResize = tbSelectionResize
         object lblCompressionLevel8: TLabel
-          Left = 135
-          Height = 65
-          Top = 5
-          Width = 161
+          Left = 108
+          Height = 53
+          Top = 4
+          Width = 134
           Caption = 'Minsize'
         end
         object cmbMinsize: TComboBox
-          Left = 312
-          Height = 73
+          Left = 250
+          Height = 61
           Hint = 'Minimum file size (ex. 1000, 10M, 20GB)'
-          Top = 12
-          Width = 504
-          ItemHeight = 65
+          Top = 10
+          Width = 403
+          ItemHeight = 0
           Items.Strings = (
             'NONE'
             '10M'
@@ -791,19 +791,19 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object lblCompressionLevel9: TLabel
-          Left = 128
-          Height = 65
-          Top = 87
-          Width = 168
+          Left = 102
+          Height = 53
+          Top = 70
+          Width = 142
           Caption = 'Maxsize'
         end
         object cmbMaxsize: TComboBox
-          Left = 312
-          Height = 73
+          Left = 250
+          Height = 61
           Hint = 'Maximum file size'
-          Top = 94
-          Width = 504
-          ItemHeight = 65
+          Top = 75
+          Width = 403
+          ItemHeight = 0
           Items.Strings = (
             'NONE'
             '10M'
@@ -817,18 +817,18 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object lblCompressionLevel10: TLabel
-          Left = 96
-          Height = 65
-          Top = 181
-          Width = 200
+          Left = 77
+          Height = 53
+          Top = 145
+          Width = 171
           Caption = 'Datefrom'
         end
         object edtDatefrom: TMaskEdit
-          Left = 312
-          Height = 73
+          Left = 250
+          Height = 63
           Hint = 'Minimum date'
-          Top = 176
-          Width = 496
+          Top = 141
+          Width = 397
           EnableSets = False
           MaxLength = 10
           TabOrder = 2
@@ -837,18 +837,18 @@ object frmSimply: TfrmSimply
           SpaceChar = '_'
         end
         object lblCompressionLevel11: TLabel
-          Left = 140
-          Height = 65
-          Top = 262
-          Width = 156
+          Left = 112
+          Height = 53
+          Top = 210
+          Width = 131
           Caption = 'Date to'
         end
         object edtdateto: TMaskEdit
-          Left = 312
-          Height = 73
+          Left = 250
+          Height = 63
           Hint = 'Maximum date'
-          Top = 260
-          Width = 496
+          Top = 208
+          Width = 397
           EnableSets = False
           MaxLength = 10
           TabOrder = 3
@@ -857,81 +857,81 @@ object frmSimply: TfrmSimply
           SpaceChar = '_'
         end
         object lblCompressionLevel12: TLabel
-          Left = 189
-          Height = 65
-          Top = 411
-          Width = 95
+          Left = 151
+          Height = 53
+          Top = 329
+          Width = 79
           Caption = 'NOT'
         end
         object lblCompressionLevel13: TLabel
-          Left = 165
-          Height = 65
-          Top = 496
-          Width = 119
+          Left = 132
+          Height = 53
+          Top = 397
+          Width = 100
           Caption = 'ONLY'
         end
         object lblCompressionLevel14: TLabel
-          Left = 109
-          Height = 65
-          Top = 584
-          Width = 175
+          Left = 87
+          Height = 53
+          Top = 467
+          Width = 142
           Caption = 'ALWAYS'
         end
         object btnpiunot: TBitBtn
-          Left = 320
-          Height = 70
-          Top = 408
-          Width = 62
+          Left = 256
+          Height = 56
+          Top = 326
+          Width = 50
           Caption = '+'
           TabOrder = 4
         end
         object btnmenonot: TBitBtn
-          Left = 408
-          Height = 70
-          Top = 408
-          Width = 62
+          Left = 326
+          Height = 56
+          Top = 326
+          Width = 50
           Caption = '-'
           TabOrder = 5
         end
         object btnpiuonly: TBitBtn
-          Left = 320
-          Height = 70
-          Top = 493
-          Width = 62
+          Left = 256
+          Height = 56
+          Top = 394
+          Width = 50
           Caption = '+'
           TabOrder = 6
         end
         object btnmenoonly: TBitBtn
-          Left = 408
-          Height = 70
-          Top = 493
-          Width = 62
+          Left = 326
+          Height = 56
+          Top = 394
+          Width = 50
           Caption = '-'
           TabOrder = 7
         end
         object btnpiualways: TBitBtn
-          Left = 320
-          Height = 70
-          Top = 581
-          Width = 62
+          Left = 256
+          Height = 56
+          Top = 465
+          Width = 50
           Caption = '+'
           TabOrder = 8
         end
         object btnmenoalways: TBitBtn
-          Left = 408
-          Height = 70
-          Top = 581
-          Width = 62
+          Left = 326
+          Height = 56
+          Top = 465
+          Width = 50
           Caption = '-'
           TabOrder = 9
         end
         object cmbnot: TComboBox
-          Left = 488
-          Height = 71
+          Left = 390
+          Height = 63
           Hint = 'Files to exclude (use space as delimiter)'
-          Top = 408
-          Width = 504
-          ItemHeight = 65
+          Top = 326
+          Width = 403
+          ItemHeight = 52
           Items.Strings = (
             'NONE'
           )
@@ -940,11 +940,11 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object cmbonly: TComboBox
-          Left = 488
-          Height = 73
-          Top = 492
-          Width = 504
-          ItemHeight = 65
+          Left = 390
+          Height = 61
+          Top = 394
+          Width = 403
+          ItemHeight = 0
           Items.Strings = (
             'NONE'
           )
@@ -953,12 +953,12 @@ object frmSimply: TfrmSimply
           OnChange = cmbCompressionLevelChange
         end
         object cmbalways: TComboBox
-          Left = 488
-          Height = 73
+          Left = 390
+          Height = 61
           Hint = 'Files to always add (use space as delimiter)'
-          Top = 580
-          Width = 504
-          ItemHeight = 65
+          Top = 464
+          Width = 403
+          ItemHeight = 0
           Items.Strings = (
             'NONE'
           )
@@ -981,46 +981,46 @@ object frmSimply: TfrmSimply
       end
       object tbImage: TTabSheet
         Caption = 'Image'
-        ClientHeight = 839
-        ClientWidth = 1368
+        ClientHeight = 681
+        ClientWidth = 1107
         object chkForce7: TCheckBox
-          Left = 24
-          Height = 69
-          Top = 8
-          Width = 288
+          Left = 19
+          Height = 55
+          Top = 6
+          Width = 230
           Caption = 'Sector-level'
           TabOrder = 0
         end
         object chkForce8: TCheckBox
-          Left = 352
-          Height = 69
-          Top = 16
-          Width = 120
+          Left = 282
+          Height = 55
+          Top = 13
+          Width = 89
           Caption = 'VSS'
           TabOrder = 1
         end
         object chkForce9: TCheckBox
-          Left = 552
-          Height = 69
-          Top = 16
-          Width = 169
+          Left = 442
+          Height = 55
+          Top = 13
+          Width = 137
           Caption = 'Frugal'
           TabOrder = 2
         end
         object Button1: TButton
-          Left = 32
-          Height = 75
-          Top = 176
-          Width = 591
+          Left = 26
+          Height = 60
+          Top = 141
+          Width = 473
           Caption = 'Take the image'
           TabOrder = 3
         end
         object cmbDrive: TComboBox
-          Left = 32
-          Height = 73
-          Top = 88
-          Width = 1000
-          ItemHeight = 65
+          Left = 26
+          Height = 61
+          Top = 70
+          Width = 800
+          ItemHeight = 0
           Items.Strings = (
             '(C) Local disk'
             '(D) 990p'
@@ -1032,14 +1032,14 @@ object frmSimply: TfrmSimply
       end
       object tbLog: TTabSheet
         Caption = 'Log'
-        ClientHeight = 839
-        ClientWidth = 1368
+        ClientHeight = 681
+        ClientWidth = 1107
         object memLog: TMemo
           Left = 0
-          Height = 839
+          Height = 681
           Hint = 'Operation log: shows commands sent to zpaqfranz and its output. Use right mouse to save to txt'
           Top = 0
-          Width = 1368
+          Width = 1107
           Align = alClient
           Lines.Strings = (
             'Memo1'
@@ -1051,56 +1051,56 @@ object frmSimply: TfrmSimply
   end
   object pnlProgress: TPanel
     Left = 0
-    Height = 219
-    Top = 1204
-    Width = 1856
+    Height = 175
+    Top = 963
+    Width = 1485
     Align = alBottom
     BevelOuter = bvNone
-    ClientHeight = 219
-    ClientWidth = 1856
+    ClientHeight = 175
+    ClientWidth = 1485
     TabOrder = 3
     Visible = False
     object lblGlobalProgress: TLabel
-      Left = 20
-      Height = 65
-      Top = -4
-      Width = 420
+      Left = 16
+      Height = 53
+      Top = -3
+      Width = 355
       Caption = 'Global Progress: 0%'
     end
     object pbGlobal: TProgressBar
-      Left = 20
-      Height = 40
-      Top = 60
-      Width = 1576
+      Left = 16
+      Height = 32
+      Top = 48
+      Width = 1261
       Anchors = [akTop, akLeft, akRight]
       TabOrder = 0
     end
     object lblFileProgress: TLabel
-      Left = 20
-      Height = 65
-      Top = 99
-      Width = 332
+      Left = 16
+      Height = 53
+      Top = 79
+      Width = 281
       Caption = 'Current File: 0%'
     end
     object pbFile: TProgressBar
-      Left = 20
-      Height = 40
-      Top = 160
-      Width = 1576
+      Left = 16
+      Height = 32
+      Top = 128
+      Width = 1261
       Anchors = [akTop, akLeft, akRight]
       TabOrder = 1
     end
     object btnAbort: TButton
-      Left = 1616
-      Height = 140
+      Left = 1293
+      Height = 112
       Hint = 'Immediately terminate the running operation. The archive may be left in an incomplete state'
-      Top = 60
-      Width = 220
+      Top = 48
+      Width = 176
       Anchors = [akTop, akRight]
       Caption = 'ABORT'
       Font.CharSet = ANSI_CHARSET
       Font.Color = clRed
-      Font.Height = -53
+      Font.Height = -42
       Font.Pitch = fpVariable
       Font.Quality = fqDraft
       Font.Style = [fsBold]
@@ -1113,7 +1113,7 @@ object frmSimply: TfrmSimply
     DefaultExt = '.zpaq'
     Filter = 'ZPAQ Archive (*.zpaq)|*.zpaq|ZPAQ Franzen Archive (*.zpaq.franzen)|*.zpaq.franzen|All Files (*.*)|*.*'
     Options = [ofOverwritePrompt, ofEnableSizing, ofViewDetail]
-    Left = 1536
-    Top = 24
+    Left = 1229
+    Top = 19
   end
 end

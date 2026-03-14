@@ -33,11 +33,11 @@ const
 
   // SHA256 hash atteso dell'eseguibile - AGGIORNATO AUTOMATICAMENTE da aggiorna.exe
   // @@DLL_HASH_START@@
-  EXPECTED_DLL_HASH = '769d8c97f5e6aad84f45847649e1a0e36da681dc325f4cc55a44de194935ef1f';
+  EXPECTED_DLL_HASH = 'aaad8c75b39df85d3fe77c9218dd145034f08881bf7bb53ee676d679d6950763';
   // @@DLL_HASH_END@@
   
   // @@EXE_HASH_START@@
-  EXPECTED_EXE_HASH = 'abb6f62b9727dd7aac23f6765795c7357ddcce75b8bdef5c7b29d337e0f4b2d5';
+  EXPECTED_EXE_HASH = '1f7e167bbb9a938af533a22bab10b7aa7691571b6f404dfe9d7f7e06e9c7e28e';
   // @@EXE_HASH_END@@
 
 var
@@ -94,7 +94,7 @@ type
     lblLoadInfo: TLabel;
     lblZoomValue: TLabel;
     MemoLog: TMemo;
-    pbHashProgress: TProgressBar;
+    pgrProgressLog: TProgressBar;
     itmLastversion: TMenuItem;
     itmAll: TMenuItem;
     mnuExtractFileGUI: TMenuItem;
@@ -335,10 +335,20 @@ type
     FBridgeOp: string; // 'LIST' or 'HASH' or 'TEST'
     FHashFileCount: Integer;
     FTestProgressLineIndex: Integer; // index of the in-place progress line in MemoLog (-1 = not yet added)
+    FLoadingArchive: Boolean; // True = caricamento archivio in corso → ignora ulteriori doppi click
+    FLogProgressLineIndex: Integer; // index of the in-place Scan progress line in MemoLog (-1 = not yet added)
+    FDLLAbortRequested: Boolean; // True = utente ha premuto Abort durante listing DLL sincrono
+
+    // --- Pannello Abort nella TabLog (creato a runtime) ---
+    pnlLogToolbar: TPanel;
+    btnAbortLoad:  TButton;
+    lblLogStatus:  TLabel;
 
     // --- Componenti generati a runtime per evitare EReadError ---
     pmLog: TPopupMenu;
     mnuSaveLog: TMenuItem;
+    mnuLogBack: TMenuItem;
+    mnuLogClear: TMenuItem;
     SaveDialogLog: TSaveDialog;
 
     mnuHashSep: TMenuItem;
@@ -362,6 +372,13 @@ type
 
     procedure CleanLogBuffer(ABuffer: TStringList);
     procedure mnuSaveLogClick(Sender: TObject);
+    procedure mnuLogBackClick(Sender: TObject);
+    procedure mnuLogClearClick(Sender: TObject);
+    procedure MemoLogKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure btnAbortLoadClick(Sender: TObject);
+    procedure SetLoadingState(ALoading: Boolean);
+    procedure OnDLLListComplete(Data: PtrInt);
+    procedure DLLGuiUpdate(Data: PtrInt);
     procedure DoLoadArchive(const AFileName: string);
     procedure ShowArchiveBrowse(const AArchivePath: string; const AData: TArchiveData);
     procedure ExitArchiveBrowseMode;
@@ -445,10 +462,85 @@ implementation
 type
   TOutputCallback = procedure(line: PAnsiChar); cdecl;
   TZpaqRunCommand = function(lpCmdLine: PAnsiChar): Integer; cdecl;
+  TZpaqResetProc  = procedure; cdecl;
+
+{ Thread che esegue ZpaqRun in background, liberando il thread principale
+  per gestire la UI (progress bar, bottone ABORT, ecc.). }
+type
+  TDLLListThread = class(TThread)
+  private
+    FCommand:   AnsiString;
+    FZpaqRun:   TZpaqRunCommand;
+    FZpaqReset: TZpaqResetProc;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const ACommand: AnsiString;
+                       AZpaqRun:   TZpaqRunCommand;
+                       AZpaqReset: TZpaqResetProc);
+    function ThreadHandle: THandle;
+  end;
 
 var
-  FastDLLBuffer: TStringList = nil;
-  FastDLLPending: string = '';
+  FastDLLBuffer:   TStringList = nil;
+  FastDLLPending:  string = '';
+  FastDLLThread:   TDLLListThread = nil;
+  FastDLLhDLL:     TLibHandle = NilHandle;
+  FastDLLDone:     Boolean = False;   // settato dal thread quando ha finito
+
+{ === DEBUG: file di log grezzo per FastDLLOutputCallback === }
+var
+  FastDLLDbgFile: string = '';
+
+procedure FastDLLDbgWrite(const ALine: string);
+var F: TextFile;
+begin
+  if not DebugMode then Exit;
+  if FastDLLDbgFile = '' then
+    FastDLLDbgFile := ExtractFilePath(ParamStr(0)) + 'catpaq_dll_debug.txt';
+  AssignFile(F, FastDLLDbgFile);
+  {$I-}
+  if FileExists(FastDLLDbgFile) then Append(F) else Rewrite(F);
+  if IOResult = 0 then begin Writeln(F, ALine); Flush(F); CloseFile(F); end;
+  {$I+}
+end;
+{ === FINE HELPERS DEBUG === }
+
+{ === TDLLListThread === }
+
+constructor TDLLListThread.Create(const ACommand: AnsiString;
+                                   AZpaqRun:   TZpaqRunCommand;
+                                   AZpaqReset: TZpaqResetProc);
+begin
+  inherited Create(True); // CreateSuspended
+  FCommand   := ACommand;
+  FZpaqRun   := AZpaqRun;
+  FZpaqReset := AZpaqReset;
+  FreeOnTerminate := False;
+end;
+
+procedure TDLLListThread.Execute;
+begin
+  try
+    FZpaqRun(PAnsiChar(FCommand));
+  finally
+    if Assigned(FZpaqReset) then FZpaqReset;
+    FastDLLDone := True;
+    Application.QueueAsyncCall(@frmMain.OnDLLListComplete, 0);
+  end;
+end;
+
+function TDLLListThread.ThreadHandle: THandle;
+begin
+  Result := Handle;
+end;
+
+{ === FastDLL callback — chiamata dal TDLLListThread, NON dal thread principale.
+  Non tocca direttamente i controlli GUI: usa QueueAsyncCall per il progresso
+  e variabili globali protette per i dati. === }
+
+var
+  FastDLLLastPercent: Integer = -1; // ultimo % inviato alla GUI (evita spam)
 
 procedure FastDLLOutputCallback(line: PAnsiChar); cdecl;
 var
@@ -472,15 +564,30 @@ begin
       FastDLLPending := '';
       StartP := P + 1;
 
+      FastDLLDbgWrite(FormatDateTime('hh:nn:ss.zzz', Now) + ' [' + S + ']');
+
       // INTERCETTA LA TELEMETRIA NATIVA DI ZPAQFRANZ
       if Pos('$$$NULL-W', S) = 1 then
       begin
         PercStr := Trim(Copy(S, 11, 3));
         Percent := StrToIntDef(PercStr, 0);
 
-        frmMain.pgrProgresso.Position := Percent;
-        frmMain.lblLoadInfo.Caption := 'Lettura archivio: ' + IntToStr(Percent) + '%';
-        Application.ProcessMessages;
+        FastDLLDbgWrite('  --> $$$NULL-W riconosciuto, PercStr="' + PercStr + '" Percent=' + IntToStr(Percent));
+
+        // Aggiorna la GUI nel thread principale (thread-safe)
+        if Percent <> FastDLLLastPercent then
+        begin
+          FastDLLLastPercent := Percent;
+          Application.QueueAsyncCall(@frmMain.DLLGuiUpdate, PtrInt(Percent));
+        end;
+
+        // Controlla abort: se richiesto svuota il buffer così il parsing
+        // restituirà 0 file e OnDLLListComplete gestirà l'abort
+        if frmMain.FDLLAbortRequested then
+        begin
+          FastDLLBuffer.Clear;
+          Exit;
+        end;
       end
       else
       begin
@@ -566,6 +673,7 @@ var
   FileVerInfo: TFileVersionInfo;
   BuildNum: Integer;
   VerStr: string;
+  mnuLogSep: TMenuItem;
 begin
     PageControl1.OnChange := nil; // <--- DISABILITA
   FileVerInfo := TFileVersionInfo.Create(nil);
@@ -592,6 +700,9 @@ begin
   FPasswordKey := '';
   FPasswordFranzen := '';
   FArchiveBrowseMode := False;
+  FLoadingArchive := False;
+  FLogProgressLineIndex := -1;
+  FDLLAbortRequested := False;
   FArchiveBrowsePath := '';
   FLvSortColumn := -1;
   FLvSortAscending := True;
@@ -633,7 +744,48 @@ begin
   mnuSaveLog.Caption := 'Save log to file...';
   mnuSaveLog.OnClick := @mnuSaveLogClick;
   pmLog.Items.Add(mnuSaveLog);
+  mnuLogSep := TMenuItem.Create(pmLog);
+  mnuLogSep.Caption := '-';
+  pmLog.Items.Add(mnuLogSep);
+  mnuLogBack := TMenuItem.Create(pmLog);
+  mnuLogBack.Caption := '<= Back to Browse';
+  mnuLogBack.OnClick := @mnuLogBackClick;
+  pmLog.Items.Add(mnuLogBack);
+  mnuLogClear := TMenuItem.Create(pmLog);
+  mnuLogClear.Caption := 'Clear log';
+  mnuLogClear.OnClick := @mnuLogClearClick;
+  pmLog.Items.Add(mnuLogClear);
   MemoLog.PopupMenu := pmLog;
+  MemoLog.OnKeyDown := @MemoLogKeyDown;
+
+  // --- Pannello Abort nella TabLog (nascosto finché non carica) ---
+  pnlLogToolbar := TPanel.Create(Self);
+  pnlLogToolbar.Parent := TabLog;
+  pnlLogToolbar.Align := alTop;
+  pnlLogToolbar.Height := 48;
+  pnlLogToolbar.BevelOuter := bvNone;
+  pnlLogToolbar.Color := $002080FF; // arancione scuro per attirare l'attenzione
+  pnlLogToolbar.Visible := False;
+
+  btnAbortLoad := TButton.Create(Self);
+  btnAbortLoad.Parent := pnlLogToolbar;
+  btnAbortLoad.Caption := 'ABORT';
+  btnAbortLoad.Height := 40;
+  btnAbortLoad.Width := 120;
+  btnAbortLoad.Left := 8;
+  btnAbortLoad.Top := 4;
+  btnAbortLoad.Font.Style := [fsBold];
+  btnAbortLoad.OnClick := @btnAbortLoadClick;
+
+  lblLogStatus := TLabel.Create(Self);
+  lblLogStatus.Parent := pnlLogToolbar;
+  lblLogStatus.Left := 140;
+  lblLogStatus.Top := 14;
+  lblLogStatus.Caption := 'Loading archive...';
+  lblLogStatus.Font.Color := clWhite;
+  lblLogStatus.Font.Style := [fsBold];
+  lblLogStatus.ParentFont := False;
+  // -----------------------------------------------------------------------
 
   SaveDialogLog := TSaveDialog.Create(Self);
   SaveDialogLog.Filter := 'Text Files (*.txt)|*.txt|All Files (*.*)|*.*';
@@ -689,11 +841,12 @@ begin
   // 800ms: abbastanza lungo da aspettare che LCL finisca di
   // ridimensionare i controlli dopo che la form diventa visibile
   FTimerRestore := TTimer.Create(Self);
-  FTimerRestore.Interval := 800;
+  FTimerRestore.Interval := 1;
   FTimerRestore.Enabled := False;
   FTimerRestore.OnTimer := @OnTimerRestore;
 
   LoadSettingsFromIni;
+  Visible := False; // nascosta finché OnTimerRestore non applica geometria
   ScanLanguages;
 
   if IsRunningAsAdmin then
@@ -831,6 +984,11 @@ begin
   for I := 0 to lvAddFiles.Columns.Count - 1 do
     AddLog('  lista col[' + IntToStr(I) + ']=' + IntToStr(lvAddFiles.Columns[I].Width));
 
+  if not Visible then
+  begin
+    Visible := True;
+    BringToFront;
+  end;
   FFormReady := True;
   FTimerSave.Enabled := True;
   AddLog('OnTimerRestore: done. Polling attivo.');
@@ -886,6 +1044,25 @@ begin
   end;
 end;
 
+
+procedure TfrmMain.mnuLogBackClick(Sender: TObject);
+begin
+  PageControl1.ActivePage := TabAdd;
+end;
+
+procedure TfrmMain.mnuLogClearClick(Sender: TObject);
+begin
+  MemoLog.Clear;
+end;
+
+procedure TfrmMain.MemoLogKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if (Key = VK_BACK) and (Shift = []) then
+  begin
+    Key := 0;
+    PageControl1.ActivePage := TabAdd;
+  end;
+end;
 
 procedure TfrmMain.mnuSaveLogClick(Sender: TObject);
 begin
@@ -1334,8 +1511,8 @@ begin
   finally
     Checker.Free;
     AddLog('--- TryDownloadDLL: END result=' + BoolToStr(Result, 'TRUE', 'FALSE') + ' ---');
-    pbHashProgress.Position := 0;
-    pbHashProgress.Visible  := False;
+    pgrProgressLog.Position := 0;
+    pgrProgressLog.Visible  := False;
     pgrProgresso.Position   := 0;
     pgrProgresso.Visible    := False;
   end;
@@ -2006,12 +2183,157 @@ begin VST.FullCollapse; end;
 
 procedure TfrmMain.PageControl1Change(Sender: TObject);
 begin
+  // Blocca il cambio tab durante il caricamento: rimanda sempre alla TabLog
+  if FLoadingArchive then
+  begin
+    PageControl1.ActivePage := TabLog;
+    Exit;
+  end;
   if PageControl1.ActivePage = TabAdd then RefreshAddFilesList;
+end;
+
+procedure TfrmMain.SetLoadingState(ALoading: Boolean);
+begin
+  pnlLogToolbar.Visible := ALoading;
+  btnAbortLoad.Enabled  := ALoading;
+  // Impedisce cambio tab: OnChange lo gestisce, ma disabilitare le tab dà
+  // un feedback visivo immediato all'utente
+  TabAdd.Enabled      := not ALoading;
+  TabArchive.Enabled  := not ALoading;
+  TabSettings.Enabled := not ALoading;
+  if ALoading then
+  begin
+    lblLogStatus.Caption := 'Loading archive: ' + ExtractFileName(FArchivePath);
+    PageControl1.ActivePage := TabLog;
+  end;
+end;
+
+procedure TfrmMain.btnAbortLoadClick(Sender: TObject);
+begin
+  btnAbortLoad.Enabled := False;
+  lblLogStatus.Caption := 'Aborting...';
+  AddLog('*** ABORT requested by user ***');
+
+  // Percorso EXE asincrono: termina il processo
+  if FBridge.Busy then
+    FBridge.AbortCommand;
+
+  // Percorso DLL thread: setta il flag per il percorso pulito...
+  FDLLAbortRequested := True;
+
+  // ...e forza la terminazione immediata del thread DLL.
+  // TerminateThread è brutale ma necessario: ZpaqRun non espone un meccanismo
+  // di cancellazione, e tra un $$$NULL-W e l'altro possono passare molti secondi.
+  // NB: TerminateThread bypassa il blocco finally in Execute, quindi
+  // dobbiamo accodar manualmente OnDLLListComplete per ripristinare la UI.
+  {$IFDEF WINDOWS}
+  if Assigned(FastDLLThread) and not FastDLLThread.Finished then
+  begin
+    Windows.TerminateThread(FastDLLThread.ThreadHandle, 1);
+    Application.QueueAsyncCall(@OnDLLListComplete, 0);
+  end;
+  {$ENDIF}
+end;
+
+{ Aggiorna la progress bar dalla GUI — chiamato nel thread principale via QueueAsyncCall. }
+procedure TfrmMain.DLLGuiUpdate(Data: PtrInt);
+var Pct: Integer;
+begin
+  Pct := Integer(Data);
+  pgrProgressLog.Max := 100;
+  pgrProgressLog.Position := Pct;
+  // Workaround animazione Aero
+  if Pct < pgrProgressLog.Max then
+  begin
+    pgrProgressLog.Position := Pct + 1;
+    pgrProgressLog.Position := Pct;
+  end;
+  lblLoadInfo.Caption := 'Lettura archivio: ' + IntToStr(Pct) + '%';
+end;
+
+{ Chiamato dal thread principale via QueueAsyncCall quando TDLLListThread termina. }
+procedure TfrmMain.OnDLLListComplete(Data: PtrInt);
+var
+  ElapsedSecs: Double;
+  WasAborted: Boolean;
+begin
+  // Attendi che il thread sia davvero terminato e liberalo
+  if Assigned(FastDLLThread) then
+  begin
+    FastDLLThread.WaitFor;
+    FreeAndNil(FastDLLThread);
+  end;
+
+  // Libera la DLL
+  if FastDLLhDLL <> NilHandle then
+  begin
+    FreeLibrary(FastDLLhDLL);
+    FastDLLhDLL := NilHandle;
+  end;
+
+  WasAborted := FDLLAbortRequested;
+
+  // Guard: può arrivare sia da TerminateThread (manuale) che da Execute (normale).
+  // La seconda chiamata trova FastDLLhDLL già = NilHandle → esce subito.
+  if (FastDLLhDLL = NilHandle) and not WasAborted and not Assigned(FastDLLBuffer) then
+    Exit;
+
+  if WasAborted then
+  begin
+    AddLog('*** Loading ABORTED by user ***');
+    FreeAndNil(FastDLLBuffer);
+    pgrProgresso.Position   := 0;
+    pgrProgressLog.Position := 0;
+    btnOpen.Enabled := True;
+    FLoadingArchive := False;
+    FLogProgressLineIndex := -1;
+    SetLoadingState(False);
+    Exit;
+  end;
+
+  // Parsing dei dati raccolti dal thread
+  try
+    if Assigned(FastDLLBuffer) then
+      FArchiveData := FBridge.ParsePakkaList(FastDLLBuffer);
+  finally
+    FreeAndNil(FastDLLBuffer);
+  end;
+
+  AddLog('Found ' + IntToStr(Length(FArchiveData.GlobalVersions)) +
+         ' versions, ' + IntToStr(Length(FArchiveData.Files)) + ' files');
+  SetupTrackBar;
+  BuildFilteredList;
+  RebuildTree;
+
+  lblArchiveInfo.Caption  := ExtractFileName(FArchivePath);
+  pgrProgresso.Position   := 0;
+  pgrProgressLog.Position := 0;
+
+  ElapsedSecs := (Now - FLoadStartTime) * 86400.0;
+  lblLoadInfo.Caption := Format(S('lbl_loaded_fmt', '%d files loaded in %.3f s'),
+                                [Length(FArchiveData.Files), ElapsedSecs]);
+  btnOpen.Enabled := True;
+
+  FLoadingArchive := False;
+  FLogProgressLineIndex := -1;
+  SetLoadingState(False);
+
+  if (FArchiveBrowsePath <> '') and
+     (Length(FArchiveData.GlobalVersions) < 2) and
+     (Length(FArchiveData.Files) > 0) then
+    ShowArchiveBrowse(FArchiveBrowsePath, FArchiveData)
+  else
+  begin
+    FArchiveBrowsePath := '';
+    PageControl1.ActivePage := TabArchive;
+  end;
 end;
 
 procedure TfrmMain.PanelBottomResize(Sender: TObject);
 begin
   btnTimeMachine.Width := tpanel(sender).width- btnTimeMachine.Left - 4;
+  edtaddpath.width:=pnladdnav.width-edtaddpath.left-4;
+  btnexit2.left:=pnladdtoolbar.width-btnexit2.width-4;
 end;
 
 { === Archive loading === }
@@ -2109,9 +2431,9 @@ var
   {$IFDEF WINDOWS}
   DLLPath: string;
   hDLL: TLibHandle;
-  ZpaqRun: TZpaqRunCommand;
+  ZpaqRun:    TZpaqRunCommand;
   ZpaqSetOut: procedure(cb: TOutputCallback); cdecl;
-  ZpaqReset: procedure; cdecl;
+  ZpaqReset:  TZpaqResetProc;
   {$ENDIF}
   ElapsedSecs: Double;
 begin
@@ -2136,7 +2458,7 @@ begin
   FLoadStartTime := Now;
 
   {$IFDEF WINDOWS}
-  // === WINDOWS: prima prova la DLL (listing sincrono veloce), poi fallback EXE ===
+  // === WINDOWS: prima prova la DLL (listing in thread separato), poi fallback EXE ===
   lblLoadInfo.Caption := S('lbl_loading', 'Loading fast via DLL...');
   Application.ProcessMessages;
 
@@ -2147,57 +2469,35 @@ begin
   hDLL := LoadLibrary(pchar(DLLPath));
   if hDLL <> NilHandle then
   begin
-    try
-      Pointer(ZpaqRun) := GetProcAddress(hDLL, 'Zpaq_RunCommand');
-      Pointer(ZpaqSetOut) := GetProcAddress(hDLL, 'Zpaq_SetOutputCallback');
-      Pointer(ZpaqReset) := GetProcAddress(hDLL, 'Zpaq_ResetCallbacks');
+    Pointer(ZpaqRun) := GetProcAddress(hDLL, 'Zpaq_RunCommand');
+    Pointer(ZpaqSetOut) := GetProcAddress(hDLL, 'Zpaq_SetOutputCallback');
+    Pointer(ZpaqReset) := GetProcAddress(hDLL, 'Zpaq_ResetCallbacks');
 
-      if Assigned(ZpaqRun) and Assigned(ZpaqSetOut) then
-      begin
-        FastDLLBuffer := TStringList.Create;
-        FastDLLPending := '';
+    if Assigned(ZpaqRun) and Assigned(ZpaqSetOut) then
+    begin
+      FastDLLBuffer  := TStringList.Create;
+      FastDLLPending := '';
+      FastDLLDone    := False;
+      FastDLLhDLL    := hDLL;  // il thread libererà la DLL via OnDLLListComplete
 
-        pgrProgresso.Max := 100;
-        pgrProgresso.Position := 0;
+      pgrProgresso.Max := 100;
+      pgrProgresso.Position := 0;
 
-        try
-          ZpaqSetOut(@FastDLLOutputCallback);
-          ZpaqRun(PAnsiChar(AnsiString(BuildCommandString)));
-          FArchiveData := FBridge.ParsePakkaList(FastDLLBuffer);
-        finally
-          FastDLLBuffer.Free;
-          FastDLLBuffer := nil;
-          if Assigned(ZpaqReset) then ZpaqReset;
-        end;
+      ZpaqSetOut(@FastDLLOutputCallback);
 
-        AddLog('Found ' + IntToStr(Length(FArchiveData.GlobalVersions)) + ' versions, ' + IntToStr(Length(FArchiveData.Files)) + ' files');
-        SetupTrackBar;
-        BuildFilteredList;
-        RebuildTree;
+      // Avvia il thread: ZpaqRun gira in background, il thread principale è libero
+      FastDLLThread := TDLLListThread.Create(
+        AnsiString(BuildCommandString), ZpaqRun, ZpaqReset);
+      FastDLLThread.Start;
 
-        lblArchiveInfo.Caption := ExtractFileName(FArchivePath);
-        pgrProgresso.Position := 0;
-
-        ElapsedSecs := (Now - FLoadStartTime) * 86400.0;
-        lblLoadInfo.Caption := Format(S('lbl_loaded_fmt', '%d files loaded in %.3f s'), [Length(FArchiveData.Files), ElapsedSecs]);
-        btnOpen.Enabled := True;
-
-        if (FArchiveBrowsePath <> '') and
-           (Length(FArchiveData.GlobalVersions) < 2) and
-           (Length(FArchiveData.Files) > 0) then
-        begin
-          ShowArchiveBrowse(FArchiveBrowsePath, FArchiveData);
-        end
-        else
-        begin
-          FArchiveBrowsePath := '';
-          PageControl1.ActivePage := TabArchive;
-        end;
-        Exit;
-      end
-      else AddLog('WARNING: DLL functions not found. Falling back to EXE...');
-    finally
+      // Ritorna subito: OnDLLListComplete (via QueueAsyncCall) completerà il lavoro
+      Exit;
+    end
+    else
+    begin
+      AddLog('WARNING: DLL functions not found. Falling back to EXE...');
       FreeLibrary(hDLL);
+      FastDLLhDLL := NilHandle;
     end;
   end
   else AddLog('WARNING: DLL not found. Falling back to EXE async...');
@@ -2219,6 +2519,9 @@ begin
     btnOpen.Enabled := True;
     TimerUpdate.Enabled := False;
     lblLoadInfo.Caption := '';
+    FLoadingArchive := False;
+    FLogProgressLineIndex := -1;
+    SetLoadingState(False);
   end;
 end;
 { === Evento Progress Telemetria === }
@@ -2226,7 +2529,7 @@ procedure TfrmMain.OnBridgeProgress(Sender: TObject; Percent: Integer; const AMs
 begin
   if FBridgeOp = 'HASH' then
   begin
-    pbHashProgress.Position := Percent;
+    pgrProgressLog.Position := Percent;
     if FBridge.ProgTotali > 0 then
       lblLoadInfo.Caption := Format('Hashing in progress: %d%% (%s / %s)',
         [Percent, FormatFileSize(FBridge.ProgLavorati), FormatFileSize(FBridge.ProgTotali)])
@@ -2237,7 +2540,7 @@ begin
 
   if FBridgeOp = 'TEST' then
   begin
-    pbHashProgress.Position := Percent;
+    pgrProgressLog.Position := Percent;
     // Build decoded progress line
     if FBridge.ProgTotali > 0 then
       lblLoadInfo.Caption := Format('Testing: %d%% - %s / %s - ETA %s',
@@ -2264,13 +2567,14 @@ begin
     Exit;
   end;
 
-  // Normale avanzamento (List/Extract)
+  // Avanzamento LIST: aggiorna barra di progresso.
+  // Le righe "Scan NNN%" intercettate dal bridge triggerano questo path.
+  // pgrProgressLog è visibile nella TabLog (mostrata durante il caricamento).
+  pgrProgressLog.Max := 100;
+  pgrProgressLog.Position := Percent;
   pgrProgresso.Position := Percent;
-  if FBridge.ProgTotali > 0 then
-    lblLoadInfo.Caption := Format('Elaborati: %s / %s (ETA: %d sec)',
-      [FormatFileSize(FBridge.ProgLavorati), FormatFileSize(FBridge.ProgTotali), FBridge.ProgETA])
-  else
-    lblLoadInfo.Caption := 'Elaborazione in corso...';
+  lblLoadInfo.Caption := Format(S('lbl_loading_pct', 'Loading: %d%%'), [Percent]);
+  Application.ProcessMessages;
 end;
 
 procedure TfrmMain.OnBridgeComplete(Sender: TObject; ExitCode: Integer);
@@ -2287,9 +2591,9 @@ begin
   // --- LOGICA HASHING ---
   if FBridgeOp = 'HASH' then
   begin
-    pbHashProgress.Position := 0;
+    pgrProgressLog.Position := 0;
     lblLoadInfo.Caption := 'Operazione hash conclusa (ExitCode: ' + IntToStr(ExitCode) + ')';
-    AddLog('Hash operation completed.');
+    AddLog(S('msg_hash_completed', 'Hash operation completed.'));
 
     LogBuf := FBridge.FlushLogBuffer;
     try
@@ -2359,7 +2663,7 @@ begin
   // --- LOGICA TEST ---
   if FBridgeOp = 'TEST' then
   begin
-    pbHashProgress.Position := 0;
+    pgrProgressLog.Position := 0;
 
     // Replace the in-place progress line (if present) with the final verdict
     if ExitCode = 0 then
@@ -2422,8 +2726,14 @@ begin
 
   lblArchiveInfo.Caption := ExtractFileName(FArchivePath);
   pgrProgresso.Position := 0;
+  pgrProgressLog.Position := 0;
   ElapsedSecs := (Now - FLoadStartTime) * 86400.0;
   lblLoadInfo.Caption := Format(S('lbl_loaded_fmt', '%d files loaded in %.1f s'), [Length(FArchiveData.Files), ElapsedSecs]);
+
+  // Resetta il lock di caricamento
+  FLoadingArchive := False;
+  FLogProgressLineIndex := -1;
+  SetLoadingState(False);
 
   // Decisione post-caricamento: se stiamo arrivando dal file selector (DblClick)
   // e l'archivio ha meno di 2 versioni (include il caso 0 = formato streaming/bug
@@ -2439,6 +2749,7 @@ begin
   else
   begin
     FArchiveBrowsePath := '';
+    // (1) Torna a Browse se versione singola, altrimenti Versions (TabArchive)
     PageControl1.ActivePage := TabArchive;
   end;
 end;
@@ -2448,6 +2759,9 @@ end;
 procedure TfrmMain.TimerUpdateTimer(Sender: TObject);
 var
   LogBuf: TStringList;
+  I: Integer;
+  Line, TrimLine: string;
+  IsScanLine: Boolean;
 begin
   LogBuf := FBridge.FlushLogBuffer;
   try
@@ -2457,13 +2771,41 @@ begin
     begin
       MemoLog.Lines.BeginUpdate;
       try
-        MemoLog.Lines.AddStrings(LogBuf);
+        for I := 0 to LogBuf.Count - 1 do
+        begin
+          Line     := LogBuf[I];
+          TrimLine := Trim(Line);
+
+          // Le righe "Scan NNN% ..." vengono mostrate in-place nel MemoLog:
+          // sovrascrivono la riga precedente invece di accumularne una per ogni tick.
+          IsScanLine := (Length(TrimLine) >= 8) and (Copy(TrimLine, 1, 5) = 'Scan ');
+
+          if IsScanLine then
+          begin
+            if (FLogProgressLineIndex >= 0) and
+               (FLogProgressLineIndex < MemoLog.Lines.Count) then
+              MemoLog.Lines[FLogProgressLineIndex] := TrimLine
+            else
+            begin
+              MemoLog.Lines.Add(TrimLine);
+              FLogProgressLineIndex := MemoLog.Lines.Count - 1;
+            end;
+          end
+          else
+          begin
+            // Riga normale: aggiunge e reset dell'indice in-place
+            MemoLog.Lines.Add(Line);
+            FLogProgressLineIndex := -1;
+          end;
+        end;
         MemoLog.SelStart := Length(MemoLog.Text);
       finally
         MemoLog.Lines.EndUpdate;
       end;
     end;
-  finally LogBuf.Free; end;
+  finally
+    LogBuf.Free;
+  end;
 end;
 
 { === TrackBar / Time Machine === }
@@ -2691,31 +3033,31 @@ procedure TfrmMain.HandleDownloadProgress(Downloaded, Total: Int64);
 var
   Percent: Integer;
 begin
-  // Aggiorna pbHashProgress e pgrProgresso durante i download da internet
+  // Aggiorna pgrProgressLog e pgrProgresso durante i download da internet
   if (Downloaded = 0) and (Total = 0) then
   begin
     // Reset: download non avviato o fallito
-    pbHashProgress.Position := 0;
-    pbHashProgress.Visible  := False;
+    pgrProgressLog.Position := 0;
+    pgrProgressLog.Visible  := False;
     pgrProgresso.Position   := 0;
   end
   else if Total > 0 then
   begin
     Percent := Round(Downloaded * 100 / Total);
-    pbHashProgress.Visible  := True;
-    pbHashProgress.Max      := 100;
-    pbHashProgress.Position := Percent;
+    pgrProgressLog.Visible  := True;
+    pgrProgressLog.Max      := 100;
+    pgrProgressLog.Position := Percent;
     pgrProgresso.Max        := 100;
     pgrProgresso.Position   := Percent;
   end
   else
   begin
     // Total ignoto: usa marquee-style (scorre da 0 a Max senza sapere il totale)
-    pbHashProgress.Visible  := True;
-    pbHashProgress.Max      := 1000;
-    pbHashProgress.Position := (pbHashProgress.Position + 50) mod 1000;
+    pgrProgressLog.Visible  := True;
+    pgrProgressLog.Max      := 1000;
+    pgrProgressLog.Position := (pgrProgressLog.Position + 50) mod 1000;
     pgrProgresso.Max        := 1000;
-    pgrProgresso.Position   := pbHashProgress.Position;
+    pgrProgresso.Position   := pgrProgressLog.Position;
   end;
   Application.ProcessMessages;
 end;
@@ -2828,8 +3170,8 @@ begin
   finally
     Checker.Free;
     AddLog('--- Internet Update: END ---');
-    pbHashProgress.Position := 0;
-    pbHashProgress.Visible  := False;
+    pgrProgressLog.Position := 0;
+    pgrProgressLog.Visible  := False;
   end;
 end;
 
@@ -2917,58 +3259,79 @@ end;
 
 procedure TfrmMain.ApplyLanguage;
 begin
-  TabArchive.Caption := S('tab_archive', 'Versions');
-  TabLog.Caption := S('tab_log', 'Log');
-  TabSettings.Caption := S('tab_settings', 'Settings');
-  TabAdd.Caption := S('tab_add', 'Browse');
-  lblFilter.Caption := S('lbl_filter', 'Filter:');
-  edtFilter.TextHint := S('filter_hint', 'Type and press Enter (=exact match)');
-  btnOpen.Caption := S('btn_open', 'Select ZPAQ...');
-  lblArchiveInfo.Caption := S('lbl_no_archive', 'No archive loaded');
-  gbFileAssoc.Caption := S('gb_file_assoc', 'File Associations');
-  btnAssociate.Caption := S('btn_associate', 'Associate .zpaq and .zpaq.franzen');
-  btnDisassociate.Caption := S('btn_disassociate', 'Remove file associations');
-  gbFont.Caption := S('gb_font', 'Tree Font');
-  btnChangeTreeFont.Caption := S('btn_change_font', 'Change tree font...');
-  gbLinks.Caption := S('gb_links', 'Links and Updates');
-  btnBrowseBuild.Caption := S('btn_browse_build', 'Browse Catpaq builds');
-  btnInternetUpdate.Caption := S('btn_internet_update', 'Internet Update');
-  gbZoom.Caption := S('gb_zoom', 'Interface Zoom');
-  gbLanguage.Caption := S('gb_language', 'Language');
-  mnuExtractFileGUI.Caption := S('mnu_extract_file_gui', 'Extract file to folder (GUI)...');
-  mnuExtractFileText.Caption := S('mnu_extract_file_text', 'Extract file to folder (text)...');
-  mnuExtractFolderGUI.Caption := S('mnu_extract_folder_gui', 'Extract folder to... (GUI)');
-  mnuExtractFolderText.Caption := S('mnu_extract_folder_text', 'Extract folder to... (text)');
-  mnuCopyFileName.Caption := S('mnu_copy_filename', 'Copy filename');
-  mnuCopyFullPath.Caption := S('mnu_copy_fullpath', 'Copy full path');
-  mnuExpandAll.Caption := S('mnu_expand_all', 'Expand all');
-  mnuCollapseAll.Caption := S('mnu_collapse_all', 'Collapse all');
-  mnuHideFolder.Caption := S('mnu_hide_folder', 'Hide selected folder');
-  mnuHideTree.Caption := S('mnu_hide_tree', 'Hide selected tree');
-  mnuShowAll.Caption := S('mnu_show_all', 'Show everything');
+  SetGlobalLang(FLang);
 
-  btnAddAdd.Caption := S('btn_add_add', 'Add');
-  btnAddExtract.Caption := S('btn_add_extract', 'Extract');
-  btnAddTest.Caption := S('btn_add_test', 'Test');
-  lblAddFilter.Caption := S('lbl_add_select', 'Select:');
-  edtAddFilter.TextHint := S('filter_add_hint', 'Type filter and press Enter (=exact match)');
-  btnAddRefresh.Caption := S('btn_add_refresh', 'Refresh');
+  // --- Log popup (runtime, riapplicato se lingua cambia) --------------------
+  if Assigned(mnuSaveLog) then mnuSaveLog.Caption := S('log_save', 'Save log to file...');
+  if Assigned(mnuLogBack)  then mnuLogBack.Caption  := S('log_back',  '<= Back to Browse');
+  if Assigned(mnuLogClear) then mnuLogClear.Caption := S('log_clear', 'Clear log');
 
-  mnuAddFilesToZpaq.Caption := S('mnu_add_files_to_zpaq', 'Add files to ZPAQ...');
-  mnuAddAllToZpaq.Caption := S('mnu_add_all_to_zpaq', 'Add all to ZPAQ');
-  mnuAddOpen.Caption := S('mnu_add_open', 'Open');
-  mnuAddOpenInExplorer.Caption := S('mnu_add_open_in_explorer', 'Open in Explorer');
-  mnuAddRename.Caption := S('mnu_add_rename', 'Rename');
-  mnuAddDelete.Caption := S('mnu_add_delete', 'Delete');
-  mnuAddCreateFolder.Caption := S('mnu_add_create_folder', 'Create folder');
-  mnuAddProperties.Caption := S('mnu_add_properties', 'Properties');
-  mnuAddHash.Caption := S('mnu_add_hash', 'Hash');
-  mnuAddTestZpaq.Caption    := S('mnu_add_test', 'Test');
-  mnuAddTestAllZpaq.Caption := S('mnu_add_test_all', 'Test all');
+  // --- Tab captions ---------------------------------------------------------
+  TabArchive.Caption            := S('tab_archive',          'Versions');
+  TabLog.Caption                := S('tab_log',              'Log');
+  TabSettings.Caption           := S('tab_settings',         'Settings');
+  TabAdd.Caption                := S('tab_add',              'Browse');
 
-  mnuArchiveBack.Caption      := S('mnu_archive_back', '← Back to filesystem');
-  mnuArchiveExtract1.Caption  := S('mnu_archive_extract', 'Extract...');
-  mnuArchiveExtract2.Caption  := S('mnu_archive_test', 'Test');
+  // --- Versions tab ---------------------------------------------------------
+  lblFilter.Caption             := S('lbl_filter',           'Filter:');
+  edtFilter.TextHint            := S('filter_hint',          'Type and press Enter (=exact match)');
+  btnOpen.Caption               := S('btn_open',             'Select ZPAQ...');
+  lblArchiveInfo.Caption        := S('lbl_no_archive',       'No archive loaded');
+
+  // --- Settings tab ---------------------------------------------------------
+  gbFileAssoc.Caption           := S('gb_file_assoc',        'File Associations');
+  btnAssociate.Caption          := S('btn_associate',        'Associate .zpaq and .zpaq.franzen');
+  btnDisassociate.Caption       := S('btn_disassociate',     'Remove file associations');
+  gbFont.Caption                := S('gb_font',              'Tree Font');
+  btnChangeTreeFont.Caption     := S('btn_change_font',      'Change tree font...');
+  gbLinks.Caption               := S('gb_links',             'Links and Updates');
+  btnBrowseBuild.Caption        := S('btn_browse_build',     'Browse Catpaq builds');
+  btnInternetUpdate.Caption     := S('btn_internet_update',  'Internet Update');
+  gbZoom.Caption                := S('gb_zoom',              'Interface Zoom');
+  gbLanguage.Caption            := S('gb_language',          'Language');
+
+  // --- Versions tree popup --------------------------------------------------
+  mnuExtractFileGUI.Caption     := S('mnu_extract_file_gui',    'Extract file to folder (GUI)...');
+  mnuExtractFileText.Caption    := S('mnu_extract_file_text',   'Extract file to folder (text)...');
+  mnuExtractFolderGUI.Caption   := S('mnu_extract_folder_gui',  'Extract folder to... (GUI)');
+  mnuExtractFolderText.Caption  := S('mnu_extract_folder_text', 'Extract folder to... (text)');
+  mnuCopyFileName.Caption       := S('mnu_copy_filename',       'Copy filename');
+  mnuCopyFullPath.Caption       := S('mnu_copy_fullpath',       'Copy full path');
+  mnuExpandAll.Caption          := S('mnu_expand_all',          'Expand all');
+  mnuCollapseAll.Caption        := S('mnu_collapse_all',        'Collapse all');
+  mnuHideFolder.Caption         := S('mnu_hide_folder',         'Hide selected folder');
+  mnuHideTree.Caption           := S('mnu_hide_tree',           'Hide selected tree');
+  mnuShowAll.Caption            := S('mnu_show_all',            'Show everything');
+
+  // --- Browse tab toolbar ---------------------------------------------------
+  btnExit2.Caption              := S('btn_exit',             '&Exit');
+  btnAddAdd.Caption             := S('btn_add_add',          'Add');
+  btnAddExtract.Caption         := S('btn_add_extract',      'Extract');
+  btnAddTest.Caption            := S('btn_add_test',         'Test');
+  lblAddFilter.Caption          := S('lbl_add_select',       'Select:');
+  edtAddFilter.TextHint         := S('filter_add_hint',      'Type filter and press Enter (=exact match)');
+  btnAddRefresh.Caption         := S('btn_add_refresh',      'Refresh');
+
+  // --- Browse popup menu ----------------------------------------------------
+  mnuAddFilesToZpaq.Caption     := S('mnu_add_files_to_zpaq',      'Add files to ZPAQ...');
+  mnuAddAllToZpaq.Caption       := S('mnu_add_all_to_zpaq',        'Add all to ZPAQ');
+  mnuAddOpen.Caption            := S('mnu_add_open',               'Open');
+  mnuAddOpenInExplorer.Caption  := S('mnu_add_open_in_explorer',   'Open in Explorer');
+  mnuAddRename.Caption          := S('mnu_add_rename',             'Rename');
+  mnuAddDelete.Caption          := S('mnu_add_delete',             'Delete');
+  mnuAddCreateFolder.Caption    := S('mnu_add_create_folder',      'Create folder');
+  mnuAddProperties.Caption      := S('mnu_add_properties',         'Properties');
+  mnuAddExtractToFolder.Caption := S('mnu_add_extract_to_folder',  'Extract ZPAQ archive to...');
+  mnuAddHash.Caption            := S('mnu_add_hash',               'Hash');
+  mnuAddTestZpaq.Caption        := S('mnu_add_test',               'Test');
+  mnuAddTestAllZpaq.Caption     := S('mnu_add_test_all',           'Test all');
+
+  // --- Archive browse popup + Test popup ------------------------------------
+  itmLastversion.Caption        := S('itm_last_version',    'Last version');
+  itmAll.Caption                := S('itm_all_versions',    'All versions');
+  mnuArchiveBack.Caption        := S('mnu_archive_back',    '← Back to filesystem');
+  mnuArchiveExtract1.Caption    := S('mnu_archive_extract', 'Extract...');
+  mnuArchiveExtract2.Caption    := S('mnu_archive_test',    'Test');
 
   if VST.Header.Columns.Count >= 5 then
   begin
@@ -3349,6 +3712,9 @@ end;
 procedure TfrmMain.OpenSelectedFile;
 var I: Integer; FilePath, FileExt: string;
 begin
+  // (2) Congela il doppio click se un caricamento archivio è già in corso
+  if FLoadingArchive then Exit;
+
   for I := 0 to lvAddFiles.Items.Count - 1 do
   begin
     if lvAddFiles.Items[I].Selected then
@@ -3365,16 +3731,32 @@ begin
       end;
       if FArchiveBrowseMode then
       begin
-        // In browse mode il doppio click su un file non fa nulla per ora
+        // In browse mode ignora il doppio click se già in caricamento
+        if FLoadingArchive then Exit;
         AddLog('Archive browse: selected "' + lvAddFiles.Items[I].Caption + '"');
         Exit;
       end;
-      if (I < Length(FAddFilesList)) and FAddFilesList[I].IsDirectory then begin NavigateToPath(FAddFilesList[I].FullPath); Exit; end
-      else begin
+      if (I < Length(FAddFilesList)) and FAddFilesList[I].IsDirectory then
+      begin
+        NavigateToPath(FAddFilesList[I].FullPath);
+        Exit;
+      end
+      else
+      begin
         FilePath := FCurrentAddPath + lvAddFiles.Items[I].Caption;
-        FileExt := LowerCase(ExtractFileExt(FilePath));
-        if (FileExt = '.zpaq') or (Pos('.zpaq.franzen', LowerCase(FilePath)) > 0) then begin OpenZpaqFile(FilePath); Exit; end;
-        {$IFDEF WINDOWS} ShellExecute(0, 'open', PChar(FilePath), nil, nil, SW_SHOWNORMAL); {$ELSE} OpenDocument(FilePath); {$ENDIF}
+        FileExt  := LowerCase(ExtractFileExt(FilePath));
+        // Apri zpaq solo per .zpaq o .zpaq.franzen
+        if (FileExt = '.zpaq') or (Pos('.zpaq.franzen', LowerCase(FilePath)) > 0) then
+        begin
+          OpenZpaqFile(FilePath);
+          Exit;
+        end;
+        // Tutti gli altri file: apri con l'applicazione predefinita del sistema
+        {$IFDEF WINDOWS}
+        ShellExecute(0, 'open', PChar(FilePath), nil, nil, SW_SHOWNORMAL);
+        {$ELSE}
+        OpenDocument(FilePath);
+        {$ENDIF}
         Exit;
       end;
     end;
@@ -3383,11 +3765,11 @@ end;
 
 procedure TfrmMain.OpenZpaqFile(const AFilePath: string);
 begin
-  // Avvia il caricamento dell'archivio.
-  // La decisione browse-mode vs tab-archivio avviene in OnBridgeComplete,
-  // dove FArchiveData è già popolato e possiamo contare le versioni.
-  // FArchiveBrowsePath viene impostato qui per indicare "vengo dal file selector".
+  FLoadingArchive    := True;
+  FLogProgressLineIndex := -1;
+  FDLLAbortRequested := False;
   FArchiveBrowsePath := AFilePath;
+  SetLoadingState(True);
   DoLoadArchive(AFilePath);
   // NON cambiamo tab qui: OnBridgeComplete decide in base al conteggio versioni
 end;
@@ -3505,46 +3887,62 @@ procedure TfrmMain.lvAddFilesAdvancedCustomDrawItem(Sender: TCustomListView;
 var
   ItemName, LowerName: string;
   IsZpaq, IsFolder: Boolean;
-  FgColor: TColor;
+  FgColor, BgColor: TColor;
+  IsSelected: Boolean;
+  R: TRect;
+  I, ColX, ColW: Integer;
+  ColText: string;
+  LV: TListView;
 begin
-  DefaultDraw := True;
-  if Stage <> cdPrePaint then Exit;
   if Item = nil then Exit;
-
-  ItemName := Item.Caption;
+  ItemName  := Item.Caption;
   LowerName := LowerCase(ItemName);
-
-  // Cartella: termina con '/' oppure è '..'
-  IsFolder := ((Length(ItemName) > 0) and (ItemName[Length(ItemName)] = '/'))
-              or (ItemName = '..');
-
-  // File zpaq: estensione esattamente .zpaq o .zpaq.franzen
-  IsZpaq := (not IsFolder) and
-             ( (ExtractFileExt(LowerName) = '.zpaq') or
-               (Copy(LowerName, Length(LowerName) - 12, 13) = '.zpaq.franzen') );
-
-  // IMPORTANTE: il canvas viene riusato tra item consecutivi — bisogna SEMPRE
-  // resettare Font.Color e Font.Style, anche per i file normali.
-  // Se non lo facciamo, un file .zpaq lascia il canvas rosso/bold e l'item
-  // successivo (file normale) lo eredita, risultando anch'esso rosso.
-  if IsFolder then
+  IsFolder  := ((Length(ItemName) > 0) and (ItemName[Length(ItemName)] = '/'))
+               or (ItemName = '..');
+  IsZpaq    := (not IsFolder) and
+               ( (ExtractFileExt(LowerName) = '.zpaq') or
+                 (Copy(LowerName, Length(LowerName) - 12, 13) = '.zpaq.franzen') );
+  // File normale: lascia disegnare al sistema, resetta colori
+  if (not IsFolder) and (not IsZpaq) then
   begin
-    FgColor := $00007000; // verde scuro
-    Sender.Canvas.Font.Style := [fsBold];
-  end
-  else if IsZpaq then
-  begin
-    FgColor := clRed;
-    Sender.Canvas.Font.Style := [fsBold];
-  end
-  else
-  begin
-    // File normale: reset COMPLETO — assegna direttamente, non sottrae
-    FgColor := clWindowText;
-    Sender.Canvas.Font.Style := [];
+    DefaultDraw := True;
+    if Stage = cdPrePaint then
+    begin
+      Sender.Canvas.Font.Color := clWindowText;
+      Sender.Canvas.Font.Style := [];
+    end;
+    Exit;
   end;
-
+  if Stage <> cdPrePaint then begin DefaultDraw := False; Exit; end;
+  DefaultDraw := False;
+  LV         := Sender as TListView;
+  IsSelected := cdsSelected in State;
+  // Eredita font del listview (nome + dimensione) per coerenza visiva
+  Sender.Canvas.Font.Assign(LV.Font);
+  if IsFolder then begin FgColor := $00007000; Sender.Canvas.Font.Style := [fsBold]; end
+  else             begin FgColor := clRed;      Sender.Canvas.Font.Style := [fsBold]; end;
+  if IsSelected then begin BgColor := clHighlight; FgColor := clHighlightText; end
+  else BgColor := Sender.Color;
+  R := Item.DisplayRect(drBounds);
+  Sender.Canvas.Brush.Color := BgColor;
+  Sender.Canvas.FillRect(R);
   Sender.Canvas.Font.Color := FgColor;
+  // Colonna 0
+  ColX := R.Left + 2;
+  if LV.Columns.Count > 0 then ColW := LV.Columns[0].Width
+  else ColW := R.Right - R.Left;
+  Sender.Canvas.TextOut(ColX, R.Top + 2, ItemName);
+  // Colonne successive (SubItems)
+  ColX := R.Left + ColW;
+  for I := 0 to Item.SubItems.Count - 1 do
+  begin
+    if I + 1 < LV.Columns.Count then ColW := LV.Columns[I + 1].Width
+    else ColW := 80;
+    ColText := Item.SubItems[I];
+    if ColText <> '' then
+      Sender.Canvas.TextOut(ColX + 2, R.Top + 2, ColText);
+    ColX := ColX + ColW;
+  end;
 end;
 
 function TfrmMain.IsZpaqFile(const AFileName: string): Boolean;
@@ -3621,7 +4019,8 @@ begin
   mnuAddTestAllZpaq.Enabled := SelZpaq; mnuAddTestAllZpaq.Visible := True;
   mnuAddRename.Enabled := (lvAddFiles.SelCount = 1) and (lvAddFiles.Selected <> nil) and (lvAddFiles.Selected.Caption <> '..');
   mnuAddDelete.Enabled := HasSelection and not ((lvAddFiles.SelCount = 1) and (lvAddFiles.Selected <> nil) and (lvAddFiles.Selected.Caption = '..'));
-  mnuAddProperties.Enabled := HasSelection; mnuAddHash.Enabled := HasSelection;
+  mnuAddProperties.Enabled := HasSelection;
+  mnuAddHash.Enabled       := HasSelection and not FArchiveBrowseMode;
 end;
 
 procedure TfrmMain.mnuAddFilesToZpaqClick(Sender: TObject);
@@ -3777,7 +4176,7 @@ begin
   AddLog('Attendere, l''operazione potrebbe richiedere tempo...');
   AddLog('');
 
-  pbHashProgress.Position := 0;
+  pgrProgressLog.Position := 0;
 
   FBridgeOp := 'HASH';
   FBridge.IsDataMode := False; // L'output terse va nel log normale
@@ -3788,7 +4187,7 @@ begin
   if not FBridge.RunCommandAsync(Cmd) then
   begin
     AddLog('ERRORE: Impossibile avviare il calcolo dell''hash.');
-    pbHashProgress.Position := 0;
+    pgrProgressLog.Position := 0;
     btnOpen.Enabled := True;
     FBridgeOp := 'LIST';
   end;

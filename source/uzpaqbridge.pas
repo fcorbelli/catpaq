@@ -388,7 +388,26 @@ procedure TZpaqBridge.ProcessLogLine(const S: string);
 var
   Parts: TStringArray;
   CalcoloPerc: Double;
+  DbgFile: string;
+  F: TextFile;
 begin
+  { === DEBUG LISTING PROGRESS: scrive ogni riga grezza su file ===
+    Rimuovere questo blocco quando il problema e' risolto. }
+  DbgFile := ExtractFilePath(ParamStr(0)) + 'catpaq_listing_debug.txt';
+  AssignFile(F, DbgFile);
+  {$I-}
+  if FileExists(DbgFile) then Append(F) else Rewrite(F);
+  if IOResult = 0 then
+  begin
+    Writeln(F, FormatDateTime('hh:nn:ss.zzz', Now) +
+              ' IsDataMode=' + BoolToStr(FIsDataMode, 'T', 'F') +
+              ' [' + S + ']');
+    Flush(F);
+    CloseFile(F);
+  end;
+  {$I+}
+  { === FINE DEBUG === }
+
   if Pos('@SPK@DEC@', S) = 1 then
   begin
     Parts := S.Split(['@']);
@@ -451,6 +470,22 @@ begin
       e contiene almeno un secondo '@' — è certamente un marker interno. }
     if (Length(S) > 1) and (S[1] = '@') and (Pos('@', S, 2) > 1) then
       Exit;  { scarta silenziosamente }
+
+    { Intercetta righe "Scan NNN% ETA ..." emesse da zpaqfranz durante il listing.
+      Aggiorna la telemetria e triggera OnProgress, così la GUI può aggiornare
+      la barra di progresso senza bisogno di parsing nel timer.
+      La riga viene comunque accodata nel LogBuffer per apparire nel MemoLog. }
+    if (Length(S) >= 8) and (Copy(S, 1, 5) = 'Scan ') then
+    begin
+      { Estrae la percentuale: "Scan 099% ..." o "Scan  99% ..." }
+      FProgGlobalPerc := StrToIntDef(Trim(Copy(S, 6, 3)), FProgGlobalPerc);
+      FListPhase      := 'SCAN';
+      Application.QueueAsyncCall(@TriggerProgress, 0);
+      { Mette la riga nel LogBuffer (non DataBuffer) così il timer la mostra }
+      FLogBuffer.Add(S);
+      Exit;
+    end;
+
     if FIsDataMode then
       FDataBuffer.Add(S)
     else

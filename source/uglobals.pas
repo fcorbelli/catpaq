@@ -39,6 +39,20 @@ var
 procedure LoadDebugMode(const AIniPath: string);
 
 { ---------------------------------------------------------------------------- }
+{  Lingua globale                                                               }
+{ ---------------------------------------------------------------------------- }
+
+{ Stringlist globale della lingua attiva. Popolata da frmMain via SetGlobalLang. }
+var
+  GLang: TStringList = nil;
+
+{ Imposta la stringlist globale (chiamare da frmMain.LoadLanguage/ApplyLanguage). }
+procedure SetGlobalLang(ALang: TStringList);
+
+{ Traduce una chiave usando GLang. Identica a TfrmMain.S() ma accessibile ovunque. }
+function S(const AKey, ADefault: string): string;
+
+{ ---------------------------------------------------------------------------- }
 {  Window geometry                                                              }
 { ---------------------------------------------------------------------------- }
 
@@ -79,6 +93,20 @@ end;
 { ============================================================================ }
 {  Debug mode                                                                  }
 { ============================================================================ }
+
+procedure SetGlobalLang(ALang: TStringList);
+begin
+  GLang := ALang;
+end;
+
+function S(const AKey, ADefault: string): string;
+var Idx: Integer;
+begin
+  if (GLang = nil) or (GLang.Count = 0) then begin Result := ADefault; Exit; end;
+  Idx := GLang.IndexOfName(AKey);
+  if Idx >= 0 then Result := GLang.ValueFromIndex[Idx]
+  else Result := ADefault;
+end;
 
 procedure LoadDebugMode(const AIniPath: string);
 var
