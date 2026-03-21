@@ -1,22 +1,22 @@
 object frmMain: TfrmMain
-  Left = 1172
-  Height = 1898
-  Top = 225
-  Width = 2500
+  Left = 2087
+  Height = 2108
+  Top = 223
+  Width = 3125
   Caption = 'Catpaq - ZPAQ Archive Explorer'
-  ClientHeight = 1898
-  ClientWidth = 2500
-  DesignTimePPI = 192
+  ClientHeight = 2108
+  ClientWidth = 3125
+  DesignTimePPI = 240
   Position = poScreenCenter
-  LCLVersion = '4.0.0.4'
+  LCLVersion = '4.4.0.0'
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnShow = FormShow
   object PageControl1: TPageControl
     Left = 0
-    Height = 1898
+    Height = 2108
     Top = 0
-    Width = 2500
+    Width = 3125
     ActivePage = TabAdd
     Align = alClient
     Style = tsFlatButtons
@@ -25,40 +25,40 @@ object frmMain: TfrmMain
     OnChange = PageControl1Change
     object TabAdd: TTabSheet
       Caption = 'Browse'
-      ClientHeight = 1845
-      ClientWidth = 2496
+      ClientHeight = 2051
+      ClientWidth = 3117
       object pnlAddToolbar: TPanel
         Left = 0
-        Height = 96
+        Height = 120
         Top = 0
-        Width = 2496
+        Width = 3117
         Align = alTop
         BevelOuter = bvNone
-        ClientHeight = 96
-        ClientWidth = 2496
+        ClientHeight = 120
+        ClientWidth = 3117
         Color = clBtnFace
         ParentBackground = False
         ParentColor = False
         TabOrder = 0
         object btnAddAdd: TButton
-          Left = 123
-          Height = 80
-          Top = 8
-          Width = 160
+          Left = 154
+          Height = 100
+          Top = 10
+          Width = 200
           Caption = 'Add'
-          Font.Height = -26
+          Font.Height = -33
           Font.Style = [fsBold]
           ParentFont = False
           TabOrder = 0
           OnClick = btnAddAddClick
         end
         object btnAddExtract: TButton
-          Left = 296
-          Height = 80
-          Top = 8
-          Width = 160
+          Left = 370
+          Height = 100
+          Top = 10
+          Width = 200
           Caption = 'Extract'
-          Font.Height = -26
+          Font.Height = -33
           Font.Style = [fsBold]
           ParentFont = False
           TabOrder = 1
@@ -66,12 +66,12 @@ object frmMain: TfrmMain
           OnClick = btnAddExtractClick
         end
         object btnAddTest: TButton
-          Left = 469
-          Height = 80
-          Top = 8
-          Width = 160
+          Left = 586
+          Height = 100
+          Top = 10
+          Width = 200
           Caption = 'Test'
-          Font.Height = -26
+          Font.Height = -33
           Font.Style = [fsBold]
           ParentFont = False
           TabOrder = 2
@@ -79,24 +79,24 @@ object frmMain: TfrmMain
           OnClick = btnAddTestClick
         end
         object btnHelp1: TButton
-          Left = 6
-          Height = 80
-          Top = 8
-          Width = 96
+          Left = 8
+          Height = 100
+          Top = 10
+          Width = 120
           Caption = '?'
-          Font.Height = -26
+          Font.Height = -33
           Font.Style = [fsBold]
           ParentFont = False
           TabOrder = 3
           OnClick = btnHelpClick
         end
         object btnExit2: TButton
-          Left = 781
-          Height = 80
-          Top = 8
-          Width = 160
+          Left = 976
+          Height = 100
+          Top = 10
+          Width = 200
           Caption = '&Exit'
-          Font.Height = -26
+          Font.Height = -33
           Font.Style = [fsBold]
           ParentFont = False
           TabOrder = 4
@@ -105,82 +105,82 @@ object frmMain: TfrmMain
       end
       object pnlAddFilter: TPanel
         Left = 0
-        Height = 48
-        Top = 96
-        Width = 2496
+        Height = 60
+        Top = 120
+        Width = 3117
         Align = alTop
         BevelOuter = bvNone
-        ClientHeight = 48
-        ClientWidth = 2496
+        ClientHeight = 60
+        ClientWidth = 3117
         TabOrder = 1
         object lblAddFilter: TLabel
-          Left = 13
-          Height = 39
-          Top = 8
-          Width = 85
+          Left = 16
+          Height = 41
+          Top = 10
+          Width = 86
           Caption = 'Select:'
           ParentColor = False
         end
         object edtAddFilter: TEdit
-          Left = 104
+          Left = 130
           Height = 49
-          Top = 6
-          Width = 640
+          Top = 8
+          Width = 800
           TabOrder = 0
           TextHint = 'Type filter and press Enter (=exact match)'
           OnKeyPress = edtAddFilterKeyPress
         end
         object lblAddPath: TLabel
-          Left = 768
-          Height = 39
-          Top = 8
-          Width = 68
+          Left = 960
+          Height = 41
+          Top = 10
+          Width = 65
           Caption = 'Path:'
           ParentColor = False
         end
       end
       object pnlAddNav: TPanel
         Left = 0
-        Height = 53
-        Top = 144
-        Width = 2496
+        Height = 66
+        Top = 180
+        Width = 3117
         Align = alTop
         BevelOuter = bvNone
-        ClientHeight = 53
-        ClientWidth = 2496
+        ClientHeight = 66
+        ClientWidth = 3117
         TabOrder = 2
         object cmbAddDrives: TComboBox
-          Left = 218
-          Height = 51
+          Left = 272
+          Height = 49
           Top = 2
-          Width = 291
-          ItemHeight = 0
+          Width = 364
+          ItemHeight = 41
           Style = csDropDownList
           TabOrder = 0
           OnChange = cmbAddDrivesChange
         end
         object edtAddPath: TEdit
-          Left = 520
+          Left = 650
           Height = 49
           Top = 2
-          Width = 1186
+          Width = 1482
           TabOrder = 1
           OnKeyPress = edtAddPathKeyPress
         end
         object btnAddUp: TButton
-          Left = 147
-          Height = 39
+          Left = 184
+          Height = 49
           Top = 2
-          Width = 64
+          Width = 80
           Caption = '..'
           TabOrder = 2
           OnClick = btnAddUpClick
         end
         object btnAddRefresh: TButton
-          Left = 6
-          Height = 39
+          Left = 8
+          Height = 49
           Top = 2
-          Width = 134
+          Width = 168
           Caption = 'Refresh'
           TabOrder = 3
           OnClick = btnAddRefreshClick
@@ -188,35 +188,35 @@ object frmMain: TfrmMain
       end
       object lvAddFiles: TListView
         Left = 0
-        Height = 1648
-        Top = 197
-        Width = 2496
+        Height = 1805
+        Top = 246
+        Width = 3117
         Align = alClient
         Columns = <        
           item
             Caption = 'Name'
-            Width = 480
+            Width = 600
           end        
           item
             Alignment = taRightJustify
             Caption = 'Size'
-            Width = 160
+            Width = 200
           end        
           item
             Caption = 'Modified'
-            Width = 240
+            Width = 300
           end        
           item
             Caption = 'Created'
-            Width = 240
+            Width = 300
           end        
           item
             Caption = 'Attributes'
-            Width = 120
+            Width = 150
           end        
           item
             Caption = 'Ext'
-            Width = 1242
+            Width = 1552
           end>
         MultiSelect = True
         PopupMenu = PopupMenuAdd
@@ -234,46 +234,46 @@ object frmMain: TfrmMain
     end
     object TabArchive: TTabSheet
       Caption = 'Versions'
-      ClientHeight = 1845
-      ClientWidth = 2496
+      ClientHeight = 2051
+      ClientWidth = 3117
       object VST: TLazVirtualStringTree
         Left = 0
-        Height = 1482
-        Top = 363
-        Width = 2496
+        Height = 1597
+        Top = 454
+        Width = 3117
         Align = alClient
-        DefaultNodeHeight = 39
+        DefaultNodeHeight = 51
         DefaultText = 'Node'
         Header.AutoSizeIndex = 3
         Header.Columns = <        
           item
             Position = 0
             Text = 'File Name'
-            Width = 800
+            Width = 1000
           end        
           item
             Alignment = taRightJustify
             Position = 1
             Text = 'Version'
-            Width = 160
+            Width = 200
           end        
           item
             Position = 2
             Text = 'Date'
-            Width = 240
+            Width = 300
           end        
           item
             Position = 3
             Text = 'Time'
-            Width = 200
+            Width = 250
           end        
           item
             Alignment = taRightJustify
             Position = 4
             Text = 'Size'
-            Width = 200
+            Width = 250
           end>
-        Header.Height = 106
+        Header.Height = 132
         Header.Options = [hoColumnResize, hoDrag, hoShowSortGlyphs, hoVisible]
         PopupMenu = PopupMenu1
         TabOrder = 0
@@ -290,13 +290,13 @@ object frmMain: TfrmMain
       end
       object PanelBottom: TPanel
         Left = 0
-        Height = 319
-        Top = 44
-        Width = 2496
+        Height = 399
+        Top = 55
+        Width = 3117
         Align = alTop
         BevelOuter = bvNone
-        ClientHeight = 319
-        ClientWidth = 2496
+        ClientHeight = 399
+        ClientWidth = 3117
         Font.Name = 'Segoe UI'
         Font.Pitch = fpVariable
         Font.Quality = fqDraft
@@ -306,18 +306,18 @@ object frmMain: TfrmMain
         OnResize = PanelBottomResize
         object lblArchiveInfo: TLabel
           Left = 0
-          Height = 36
+          Height = 41
           Top = 0
-          Width = 2496
+          Width = 3117
           Align = alTop
           Caption = 'No archive loaded'
           ParentColor = False
         end
         object TrackBar1: TTrackBar
           Left = 0
-          Height = 94
-          Top = 36
-          Width = 2496
+          Height = 118
+          Top = 41
+          Width = 3117
           Max = 0
           Position = 0
           OnChange = TrackBar1Change
@@ -326,28 +326,28 @@ object frmMain: TfrmMain
         end
         object pnlCerca: TPanel
           Left = 0
-          Height = 82
-          Top = 237
-          Width = 2496
+          Height = 102
+          Top = 297
+          Width = 3117
           Align = alBottom
           BevelInner = bvLowered
           BevelWidth = 2
-          ClientHeight = 82
-          ClientWidth = 2496
+          ClientHeight = 102
+          ClientWidth = 3117
           TabOrder = 1
           object lblFilter: TLabel
-            Left = 19
-            Height = 36
-            Top = 19
-            Width = 64
+            Left = 24
+            Height = 41
+            Top = 24
+            Width = 83
             Caption = 'Filter:'
             ParentColor = False
           end
           object edtFilter: TEdit
-            Left = 102
-            Height = 46
-            Top = 19
-            Width = 800
+            Left = 128
+            Height = 49
+            Top = 24
+            Width = 1000
             TabOrder = 0
             TextHint = 'Type and press Enter (=exact match)'
             OnKeyPress = edtFilterKeyPress
@@ -355,84 +355,84 @@ object frmMain: TfrmMain
         end
         object pnlBottoni: TPanel
           Left = 0
-          Height = 105
-          Top = 130
-          Width = 2496
+          Height = 131
+          Top = 159
+          Width = 3117
           Align = alTop
           BevelInner = bvLowered
           BevelWidth = 2
-          ClientHeight = 105
-          ClientWidth = 2496
+          ClientHeight = 131
+          ClientWidth = 3117
           TabOrder = 2
           object btnTimeMachine: TButton
-            Left = 314
-            Height = 80
-            Top = 13
-            Width = 360
+            Left = 392
+            Height = 100
+            Top = 16
+            Width = 450
             Caption = 'Show ALL versions'
             TabOrder = 0
             OnClick = btnTimeMachineClick
           end
           object btnOpen: TButton
-            Left = 6
-            Height = 80
-            Top = 13
-            Width = 300
+            Left = 8
+            Height = 100
+            Top = 16
+            Width = 375
             Caption = 'Select ZPAQ...'
             TabOrder = 1
             OnClick = btnOpenClick
           end
         end
         object lblLoadInfo: TLabel
-          Left = 48
+          Left = 60
           Height = 1
-          Top = 380
+          Top = 475
           Width = 1
           Font.Color = clNavy
           ParentColor = False
           ParentFont = False
         end
         object lblFilterInfo: TLabel
-          Left = 1100
+          Left = 1375
           Height = 1
-          Top = 32
+          Top = 40
           Width = 1
           ParentColor = False
         end
         object lblFileCount: TLabel
-          Left = 1400
+          Left = 1750
           Height = 1
-          Top = 216
+          Top = 270
           Width = 1
           ParentColor = False
         end
       end
       object pgrProgresso: TProgressBar
         Left = 0
-        Height = 44
+        Height = 55
         Top = 0
-        Width = 2496
+        Width = 3117
         Align = alTop
         TabOrder = 2
       end
     end
     object TabLog: TTabSheet
       Caption = 'Log'
-      ClientHeight = 1845
-      ClientWidth = 2496
+      ClientHeight = 2051
+      ClientWidth = 3117
       object pgrProgressLog: TProgressBar
         Left = 0
-        Height = 24
+        Height = 30
         Top = 0
-        Width = 2496
+        Width = 3117
         Align = alTop
         TabOrder = 1
       end
       object MemoLog: TMemo
         Left = 0
-        Height = 1821
-        Top = 24
-        Width = 2496
+        Height = 2021
+        Top = 30
+        Width = 3117
         Align = alClient
         Font.Name = 'Consolas'
         ParentFont = False
@@ -444,96 +444,96 @@ object frmMain: TfrmMain
     end
     object TabSettings: TTabSheet
       Caption = 'Settings'
-      ClientHeight = 1845
-      ClientWidth = 2496
+      ClientHeight = 2051
+      ClientWidth = 3117
       object gbFileAssoc: TGroupBox
         Left = 0
-        Height = 360
+        Height = 450
         Top = 0
-        Width = 2496
+        Width = 3117
         Align = alTop
         Caption = 'File Associations'
-        ClientHeight = 319
-        ClientWidth = 2492
+        ClientHeight = 404
+        ClientWidth = 3113
         TabOrder = 0
         object btnAssociate: TButton
-          Left = 40
-          Height = 80
-          Top = 40
-          Width = 600
+          Left = 50
+          Height = 100
+          Top = 50
+          Width = 750
           Caption = 'Associate .zpaq and .zpaq.franzen'
           TabOrder = 0
           OnClick = btnAssociateClick
         end
         object btnDisassociate: TButton
-          Left = 40
-          Height = 80
-          Top = 140
-          Width = 600
+          Left = 50
+          Height = 100
+          Top = 175
+          Width = 750
           Caption = 'Remove file associations'
           TabOrder = 1
           OnClick = btnDisassociateClick
         end
         object lblAdminStatus: TLabel
-          Left = 680
+          Left = 850
           Height = 1
-          Top = 60
+          Top = 75
           Width = 1
           ParentColor = False
         end
       end
       object gbFont: TGroupBox
         Left = 0
-        Height = 300
-        Top = 360
-        Width = 2496
+        Height = 375
+        Top = 450
+        Width = 3117
         Align = alTop
         Caption = 'Tree Font'
-        ClientHeight = 296
-        ClientWidth = 2492
+        ClientHeight = 329
+        ClientWidth = 3113
         TabOrder = 1
         object btnChangeTreeFont: TButton
-          Left = 40
-          Height = 80
-          Top = 40
-          Width = 600
+          Left = 50
+          Height = 100
+          Top = 50
+          Width = 750
           Caption = 'Change tree font...'
           TabOrder = 0
           OnClick = btnChangeTreeFontClick
         end
         object lblCurrentFont: TLabel
-          Left = 40
-          Height = 39
-          Top = 140
-          Width = 225
+          Left = 50
+          Height = 41
+          Top = 175
+          Width = 224
           Caption = 'Current: (default)'
           ParentColor = False
         end
       end
       object gbLinks: TGroupBox
         Left = 0
-        Height = 300
-        Top = 660
-        Width = 2496
+        Height = 375
+        Top = 825
+        Width = 3117
         Align = alTop
         Caption = 'Links and Updates'
-        ClientHeight = 259
-        ClientWidth = 2492
+        ClientHeight = 329
+        ClientWidth = 3113
         TabOrder = 2
         object btnBrowseBuild: TButton
-          Left = 40
-          Height = 80
-          Top = 40
-          Width = 600
+          Left = 50
+          Height = 100
+          Top = 50
+          Width = 750
           Caption = 'Browse Catpaq builds'
           TabOrder = 0
           OnClick = btnBrowseBuildClick
         end
         object btnInternetUpdate: TButton
-          Left = 40
-          Height = 80
-          Top = 140
-          Width = 600
+          Left = 50
+          Height = 100
+          Top = 175
+          Width = 750
           Caption = 'Internet Update'
           TabOrder = 1
           OnClick = btnInternetUpdateClick
@@ -541,19 +541,19 @@ object frmMain: TfrmMain
       end
       object gbZoom: TGroupBox
         Left = 0
-        Height = 200
-        Top = 960
-        Width = 2496
+        Height = 250
+        Top = 1200
+        Width = 3117
         Align = alTop
         Caption = 'Interface Zoom'
-        ClientHeight = 196
-        ClientWidth = 2492
+        ClientHeight = 204
+        ClientWidth = 3113
         TabOrder = 3
         object tbZoom: TTrackBar
-          Left = 40
-          Height = 80
-          Top = 20
-          Width = 800
+          Left = 50
+          Height = 100
+          Top = 25
+          Width = 1000
           Max = 250
           Min = 50
           Position = 100
@@ -562,30 +562,30 @@ object frmMain: TfrmMain
           TabOrder = 0
         end
         object lblZoomValue: TLabel
-          Left = 880
-          Height = 39
-          Top = 40
-          Width = 162
+          Left = 1100
+          Height = 41
+          Top = 50
+          Width = 167
           Caption = 'Zoom: 100%'
           ParentColor = False
         end
       end
       object gbLanguage: TGroupBox
         Left = 0
-        Height = 200
-        Top = 1160
-        Width = 2496
+        Height = 250
+        Top = 1450
+        Width = 3117
         Align = alTop
         Caption = 'Language'
-        ClientHeight = 159
-        ClientWidth = 2492
+        ClientHeight = 204
+        ClientWidth = 3113
         TabOrder = 4
         object cbLanguage: TComboBox
-          Left = 40
-          Height = 51
-          Top = 6
-          Width = 600
-          ItemHeight = 0
+          Left = 50
+          Height = 49
+          Top = 8
+          Width = 750
+          ItemHeight = 41
           Style = csDropDownList
           TabOrder = 0
           OnChange = cbLanguageChange
@@ -596,20 +596,20 @@ object frmMain: TfrmMain
   object OpenDialog1: TOpenDialog
     Title = 'Open ZPAQ Archive'
     Filter = 'ZPAQ archives (*.zpaq;*.zpaq.franzen)|*.zpaq;*.zpaq.franzen|All files (*.*)|*.*'
-    Left = 1400
-    Top = 40
+    Left = 1750
+    Top = 50
   end
   object TimerUpdate: TTimer
     Enabled = False
     Interval = 200
     OnTimer = TimerUpdateTimer
-    Left = 1480
-    Top = 40
+    Left = 1850
+    Top = 50
   end
   object PopupMenu1: TPopupMenu
     OnPopup = PopupMenu1Popup
-    Left = 1560
-    Top = 40
+    Left = 1950
+    Top = 50
     object mnuExtractFileGUI: TMenuItem
       Caption = 'Extract file to folder (GUI)...'
       OnClick = mnuExtractFileGUIClick
@@ -678,19 +678,19 @@ object frmMain: TfrmMain
   end
   object SelectDirectoryDialog1: TSelectDirectoryDialog
     Title = 'Select destination folder'
-    Left = 1640
-    Top = 40
+    Left = 2050
+    Top = 50
   end
   object FontDialog1: TFontDialog
     MinFontSize = 0
     MaxFontSize = 0
-    Left = 1720
-    Top = 40
+    Left = 2150
+    Top = 50
   end
   object PopupMenuAdd: TPopupMenu
     OnPopup = PopupMenuAddPopup
-    Left = 1800
-    Top = 40
+    Left = 2250
+    Top = 50
     object mnuAddFilesToZpaq: TMenuItem
       Caption = 'Add files to ZPAQ...'
       OnClick = mnuAddFilesToZpaqClick
@@ -838,8 +838,8 @@ object frmMain: TfrmMain
     end
   end
   object popTest: TPopupMenu
-    Left = 666
-    Top = 87
+    Left = 833
+    Top = 109
     object itmLastversion: TMenuItem
       Caption = 'Last version'
       OnClick = itmLastversionClick
@@ -851,8 +851,8 @@ object frmMain: TfrmMain
   end
   object PopupMenuArchiveBrowse: TPopupMenu
     OnPopup = PopupMenuArchiveBrowsePopup
-    Left = 1800
-    Top = 87
+    Left = 2250
+    Top = 109
     object mnuArchiveBack: TMenuItem
       Caption = '← Back to filesystem'
       OnClick = mnuArchiveBackClick

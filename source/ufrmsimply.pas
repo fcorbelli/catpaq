@@ -195,6 +195,9 @@ type
     procedure RestoreMainBridge;
     function FormatFileSize(const ABytes: Int64): string;
     procedure HookHints(AParent: TWinControl);
+    procedure HookCheckBoxColors(AParent: TWinControl);
+    procedure OnCheckBoxClick(Sender: TObject);
+    procedure FixAllCheckBoxWidths(AParent: TWinControl);
     procedure ControlMouseEnter(Sender: TObject);
     procedure LoadWindowSettings;
     procedure SaveWindowSettings;
@@ -211,6 +214,7 @@ var
 implementation
 
 {$R *.lfm}
+{$WARN 5024 OFF} // Parameter "Sender" not used — expected for LCL event handlers
 
 { TfrmSimply }
 
@@ -452,6 +456,9 @@ procedure TfrmSimply.FormCreate(Sender: TObject);
 var
   MnuSave: TMenuItem;
   SavedLang: string;
+  i: Integer;
+  chk: TCheckBox;
+  maxR: Integer;
 begin
   FIniFileName := GetCatpaqIniPath;
   FIniFile     := TIniFile.Create(FIniFileName);
@@ -537,6 +544,25 @@ begin
   // Hook all visual controls so hovering shows their Hint in memHelp
   HookHints(Self);
 
+  // --- Fix ALL checkbox widths across the entire form ---
+  // AutoSize=True/False trick: let LCL compute natural width, then add 4px
+  // margin so the last character is never clipped by the widget border.
+  // Recursive so it reaches checkboxes inside TabSheets, Panels, etc.
+  // pnlFlags is also widened to fit its (now wider) checkboxes.
+  FixAllCheckBoxWidths(Self);
+  // Widen pnlFlags to contain its checkboxes
+  maxR := 0;
+  for i := 0 to pnlFlags.ControlCount - 1 do
+    if pnlFlags.Controls[i] is TCheckBox then
+    begin
+      chk := TCheckBox(pnlFlags.Controls[i]);
+      if chk.Left + chk.Width > maxR then
+        maxR := chk.Left + chk.Width;
+    end;
+  {
+  if maxR > 0 then
+    pnlFlags.Width := maxR + 16;
+   }
   // --- Log context menu: right-click -> Save log to file ---
   FSaveLogDialog := TSaveDialog.Create(Self);
   FSaveLogDialog.Title      := 'Save log to file';
@@ -582,6 +608,9 @@ begin
 
   // Setup initial Progress Panel
   pnlProgress.Visible := False;
+
+  // Wire checkbox color feedback: checked = green label, unchecked = default
+  HookCheckBoxColors(Self);
 end;
 
 procedure TfrmSimply.pgOptionsChange(Sender: TObject);
@@ -623,6 +652,7 @@ begin
   lblreplace.left:=edtfind.left+edtfind.width+4;
   edtreplace.left:=lblreplace.left+lblreplace.width+4;
 end;
+
 
 procedure TfrmSimply.tbAdvancedContextPopup(Sender: TObject; MousePos: TPoint;
   var Handled: Boolean);
@@ -758,62 +788,10 @@ begin
 end;
 
 procedure TfrmSimply.AdjustArchiveExtension;
-const
-  // All multipart suffixes that zpaqfranz accepts — longest first so stripping
-  // works correctly (e.g. strip "_????????" before trying "_?")
-  MULTIPART_SUFFIXES: array[0..4] of string = (
-    '_????????', '_????', '_???', '_??', '_?'
-  );
-var
-  FileName, BaseName, MultipartSuffix, FinalExt, ItemText: string;
-  FormatIdx, MultiIdx, k: Integer;
-  SpacePos: Integer;
 begin
-  FileName := Trim(cmbArchiveName.Text);
-  if FileName = '' then Exit;
-
-  // --- 1. Strip known extension (.zpaq.franzen or .zpaq) ---
-  if EndsText('.zpaq.franzen', FileName) then
-    BaseName := Copy(FileName, 1, Length(FileName) - 14)
-  else if EndsText('.zpaq', FileName) then
-    BaseName := Copy(FileName, 1, Length(FileName) - 5)
-  else
-    BaseName := FileName;
-
-  // --- 2. Strip any existing multipart suffix from BaseName ---
-  for k := Low(MULTIPART_SUFFIXES) to High(MULTIPART_SUFFIXES) do
-    if EndsText(MULTIPART_SUFFIXES[k], BaseName) then
-    begin
-      BaseName := Copy(BaseName, 1,
-                       Length(BaseName) - Length(MULTIPART_SUFFIXES[k]));
-      Break;
-    end;
-
-  // --- 3. Determine new multipart suffix from cmbMultipart ---
-  // Items: 0="(NO-single archive)", 1="_? (9 PARTS)", 2="_?? (99 PARTS)" …
-  // The suffix is the first token (before the first space) of each item,
-  // except item 0 which means "no suffix".
-  MultipartSuffix := '';
-  MultiIdx := cmbMultipart.ItemIndex;
-  if MultiIdx > 0 then
-  begin
-    ItemText := cmbMultipart.Items[MultiIdx];
-    SpacePos := Pos(' ', ItemText);
-    if SpacePos > 0 then
-      MultipartSuffix := Copy(ItemText, 1, SpacePos - 1)
-    else
-      MultipartSuffix := ItemText;
-  end;
-
-  // --- 4. Determine extension from cmbArchiveFormat ---
-  FormatIdx := cmbArchiveFormat.ItemIndex;
-  if (FormatIdx = 2) or (FormatIdx = 3) then
-    FinalExt := '.zpaq.franzen'
-  else
-    FinalExt := '.zpaq';
-
-  // --- 5. Rebuild filename: base + multipart_suffix + extension ---
-  cmbArchiveName.Text := BaseName + MultipartSuffix + FinalExt;
+  // No-op: extension adjustment is now done exclusively inside
+  // GetArchiveFileName at operation time.  Rewriting cmbArchiveName.Text
+  // on-the-fly caused cursor-jump and loop issues on Linux/macOS.
 end;
 
 function TfrmSimply.ValidatePasswords(out ErrorMsg: string): Boolean;
@@ -857,11 +835,75 @@ begin
   end;
 end;
 
+{ ---------------------------------------------------------------------------- }
+{ GetArchiveFileName                                                            }
+{ Returns the archive filename with the correct extension applied at call      }
+{ time, based on the current format (cmbArchiveFormat) and multipart           }
+{ (cmbMultipart) selections.                                                   }
+{                                                                              }
+{ Logic:                                                                        }
+{   1. Take the raw text from cmbArchiveName.                                  }
+{   2. Strip any existing .zpaq.franzen or .zpaq suffix (whichever is present).}
+{   3. Strip any known multipart suffix (_?, _??, _???, _????, _????????).     }
+{   4. Append the multipart suffix selected in cmbMultipart (if any).          }
+{   5. Append .zpaq.franzen for Franzen/Both formats, .zpaq otherwise.         }
+{                                                                              }
+{ The raw text in cmbArchiveName is left untouched — this avoids every         }
+{ cross-platform issue with rewriting the combo while the user is typing.      }
+{ ---------------------------------------------------------------------------- }
 function TfrmSimply.GetArchiveFileName: string;
+const
+  MULTIPART_SUFFIXES: array[0..4] of string = (
+    '_????????', '_????', '_???', '_??', '_?'
+  );
+var
+  Raw, Base, MultipartSuffix, FinalExt, ItemText: string;
+  FormatIdx, MultiIdx, k: Integer;
+  SpacePos: Integer;
 begin
-  Result := Trim(cmbArchiveName.Text);
-  if Result = '' then
-    Result := 'archive.zpaq';
+  Raw := Trim(cmbArchiveName.Text);
+  if Raw = '' then Raw := 'archive';
+
+  // --- 1. Strip known archive extension (.zpaq.franzen before .zpaq) ---
+  if EndsText('.zpaq.franzen', Raw) then
+    Base := Copy(Raw, 1, Length(Raw) - Length('.zpaq.franzen'))
+  else if EndsText('.zpaq', Raw) then
+    Base := Copy(Raw, 1, Length(Raw) - Length('.zpaq'))
+  else
+    Base := Raw;
+
+  // --- 2. Strip any existing multipart suffix ---
+  for k := Low(MULTIPART_SUFFIXES) to High(MULTIPART_SUFFIXES) do
+    if EndsText(MULTIPART_SUFFIXES[k], Base) then
+    begin
+      Base := Copy(Base, 1, Length(Base) - Length(MULTIPART_SUFFIXES[k]));
+      Break;
+    end;
+
+  // --- 3. Determine multipart suffix from cmbMultipart ---
+  // Items: 0 = "(NO-single archive)", 1+ = "_? (9 PARTS)" etc.
+  MultipartSuffix := '';
+  MultiIdx := cmbMultipart.ItemIndex;
+  if MultiIdx > 0 then
+  begin
+    ItemText := cmbMultipart.Items[MultiIdx];
+    SpacePos := Pos(' ', ItemText);
+    if SpacePos > 0 then
+      MultipartSuffix := Copy(ItemText, 1, SpacePos - 1)
+    else
+      MultipartSuffix := ItemText;
+  end;
+
+  // --- 4. Determine extension from cmbArchiveFormat ---
+  // 0=Normal 1=AES 2=Franzen 3=Both — Franzen and Both need .zpaq.franzen
+  FormatIdx := cmbArchiveFormat.ItemIndex;
+  if (FormatIdx = 2) or (FormatIdx = 3) then
+    FinalExt := '.zpaq.franzen'
+  else
+    FinalExt := '.zpaq';
+
+  // --- 5. Assemble final name ---
+  Result := Base + MultipartSuffix + FinalExt;
 end;
 
 { ---------------------------------------------------------------------------- }
@@ -1035,7 +1077,7 @@ begin
     // If multipart not yet chosen, force _????????
     if cmbMultipart.ItemIndex = 0 then
       cmbMultipart.ItemIndex := 5; // _???????? (LOTS)
-    AdjustArchiveExtension; // updates cmbArchiveName.Text with the ? suffix
+    // Extension + multipart suffix are resolved by GetArchiveFileName below
   end;
 
   ArchiveName := NormalizePath(GetArchiveFileName);
@@ -1447,14 +1489,17 @@ begin
     Exit;
   end;
 
-  ArchiveFile := Trim(cmbArchiveName.Text);
-  if ArchiveFile = '' then
+  // Validate that the user typed something in the archive combo
+  if Trim(cmbArchiveName.Text) = '' then
   begin
     ShowMessage('Please enter an archive filename');
     cmbArchiveName.SetFocus;
     Exit;
   end;
 
+  // GetArchiveFileName always returns a name with the correct extension,
+  // so we just do a sanity-check here (should never fail in practice).
+  ArchiveFile := GetArchiveFileName;
   if not (EndsText('.zpaq', ArchiveFile) or
           EndsText('.zpaq.franzen', ArchiveFile)) then
   begin
@@ -1485,7 +1530,9 @@ end;
 
 procedure TfrmSimply.cmbArchiveNameChange(Sender: TObject);
 begin
-  AdjustArchiveExtension;
+  // Extension is NOT adjusted here on every keystroke: it was unreliable
+  // on Linux/macOS (cursor jumping, rewrite loops). The correct extension
+  // is enforced at operation time inside GetArchiveFileName.
 end;
 
 procedure TfrmSimply.cmbCompressionLevelChange(Sender: TObject);
@@ -1565,6 +1612,98 @@ begin
     // Recurse into containers
     if Ctrl is TWinControl then
       HookHints(TWinControl(Ctrl));
+  end;
+end;
+
+{ ---------------------------------------------------------------------------- }
+{ Checkbox color feedback                                                       }
+{ Checked  → caption turns green (Tag=1 "switch" checkboxes only)              }
+{ Unchecked → caption back to default text color                               }
+{ ---------------------------------------------------------------------------- }
+
+{ ---------------------------------------------------------------------------- }
+{ FixAllCheckBoxWidths                                                         }
+{ Recursively walks every control in the form. For each TCheckBox found:      }
+{   AutoSize=True  -> LCL computes the natural width for current font/DPI     }
+{   AutoSize=False -> locks the value                                          }
+{   Width += 4     -> small margin so last glyph is never clipped             }
+{ Called once from FormCreate; never from an OnResize handler.                }
+{ ---------------------------------------------------------------------------- }
+procedure TfrmSimply.FixAllCheckBoxWidths(AParent: TWinControl);
+var
+  i   : Integer;
+  Ctrl: TControl;
+  chk : TCheckBox;
+begin
+  for i := 0 to AParent.ControlCount - 1 do
+  begin
+    Ctrl := AParent.Controls[i];
+    if Ctrl is TCheckBox then
+    begin
+      chk          := TCheckBox(Ctrl);
+      chk.AutoSize := True;
+      chk.AutoSize := False;
+      chk.Width    := chk.Width + 4;
+    end;
+    if Ctrl is TWinControl then
+      FixAllCheckBoxWidths(TWinControl(Ctrl));
+  end;
+end;
+
+procedure TfrmSimply.OnCheckBoxClick(Sender: TObject);
+var
+  chk: TCheckBox;
+begin
+  if not (Sender is TCheckBox) then Exit;
+  chk := TCheckBox(Sender);
+  chk.ParentFont := False;
+  if chk.Checked then
+  begin
+    chk.Font.Color := clGreen;
+    chk.Font.Style := [fsBold];
+  end
+  else
+  begin
+    chk.Font.Color := clWindowText;
+    chk.Font.Style := [];
+  end;
+  // Re-measure: bold text is wider than normal; AutoSize recalculates for the
+  // current font style, then we lock and add the same 4px safety margin.
+  chk.AutoSize := True;
+  chk.AutoSize := False;
+  chk.Width    := chk.Width + 4;
+end;
+
+procedure TfrmSimply.HookCheckBoxColors(AParent: TWinControl);
+var
+  i: Integer;
+  Ctrl: TControl;
+  chk: TCheckBox;
+begin
+  for i := 0 to AParent.ControlCount - 1 do
+  begin
+    Ctrl := AParent.Controls[i];
+    if (Ctrl is TCheckBox) and (Ctrl.Tag = 1) then
+    begin
+      chk := TCheckBox(Ctrl);
+      chk.OnClick    := @OnCheckBoxClick;
+      chk.ParentFont := False;
+      if chk.Checked then
+      begin
+        chk.Font.Color := clGreen;
+        chk.Font.Style := [fsBold];
+        chk.AutoSize   := True;
+        chk.AutoSize   := False;
+        chk.Width      := chk.Width + 4;
+      end
+      else
+      begin
+        chk.Font.Color := clWindowText;
+        chk.Font.Style := [];
+      end;
+    end;
+    if Ctrl is TWinControl then
+      HookCheckBoxColors(TWinControl(Ctrl));
   end;
 end;
 
