@@ -44,7 +44,6 @@ object frmExtract: TfrmExtract
     end
     object cmbDestPath: TComboBox
       Left = 168
-      Height = 49
       Top = 136
       Width = 1490
       Anchors = [akTop, akLeft, akRight]

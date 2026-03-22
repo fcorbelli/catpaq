@@ -125,7 +125,6 @@ object frmSimply: TfrmSimply
     end
     object cmbArchiveName: TComboBox
       Left = 340
-      Height = 73
       Hint = 'Path to the target archive. Recent archives are listed here. Type or select one'
       Top = 16
       Width = 911
@@ -383,7 +382,6 @@ object frmSimply: TfrmSimply
         OnResize = tbStandardResize
         object cmbHash: TComboBox
           Left = 344
-          Height = 73
           Hint = 'Hash algorithm used to verify file integrity inside the archive. XXHASH is fast and recommended'
           Top = 162
           Width = 504
@@ -416,7 +414,6 @@ object frmSimply: TfrmSimply
         end
         object cmbCompressionLevel: TComboBox
           Left = 344
-          Height = 73
           Hint = 'Compression level: 0=Store (fastest, no compression) up to 5=Top (slowest, best ratio). Default is 1'
           Top = 82
           Width = 504
@@ -433,7 +430,6 @@ object frmSimply: TfrmSimply
         end
         object cmbArchiveFormat: TComboBox
           Left = 344
-          Height = 73
           Hint = 'Archive format: Normal (no encryption), AES (symmetric encryption), Franzen (alternative encryption), or both'
           Top = 6
           Width = 504
@@ -457,7 +453,6 @@ object frmSimply: TfrmSimply
         end
         object cmbMultipart: TComboBox
           Left = 344
-          Height = 73
           Hint = 'Multipart mode: split the archive into numbered parts (e.g. _? for up to 9 parts). NO = single archive'
           Top = 236
           Width = 504
@@ -484,7 +479,6 @@ object frmSimply: TfrmSimply
         end
         object cmbChunked: TComboBox
           Left = 344
-          Height = 73
           Hint = 'Chunked mode: limit each archive chunk to a specific size (useful for optical media or FAT32 drives)'
           Top = 315
           Width = 504
@@ -583,7 +577,6 @@ object frmSimply: TfrmSimply
         OnContextPopup = tbAdvancedContextPopup
         object cmbThreads: TComboBox
           Left = 428
-          Height = 73
           Hint = 'Select the number of concurrent threads'
           Top = 8
           Width = 504
@@ -626,7 +619,6 @@ object frmSimply: TfrmSimply
         end
         object cmbFragment: TComboBox
           Left = 428
-          Height = 73
           Hint = 'Select fragment size. Smaller number=smaller size, but higher workload'
           Top = 89
           Width = 504
@@ -657,7 +649,6 @@ object frmSimply: TfrmSimply
         end
         object cmbBlocksize: TComboBox
           Left = 428
-          Height = 73
           Hint = 'Average size of blocks'
           Top = 174
           Width = 504
@@ -764,7 +755,6 @@ object frmSimply: TfrmSimply
         end
         object cmbMinsize: TComboBox
           Left = 312
-          Height = 73
           Hint = 'Minimum file size (ex. 1000, 10M, 20GB)'
           Top = 12
           Width = 504
@@ -789,7 +779,6 @@ object frmSimply: TfrmSimply
         end
         object cmbMaxsize: TComboBox
           Left = 312
-          Height = 73
           Hint = 'Maximum file size'
           Top = 94
           Width = 504
@@ -916,7 +905,6 @@ object frmSimply: TfrmSimply
         end
         object cmbnot: TComboBox
           Left = 488
-          Height = 58
           Hint = 'Files to exclude (use space as delimiter)'
           Top = 408
           Width = 504
@@ -929,7 +917,6 @@ object frmSimply: TfrmSimply
         end
         object cmbonly: TComboBox
           Left = 488
-          Height = 73
           Top = 492
           Width = 504
           Items.Strings = (
@@ -941,7 +928,6 @@ object frmSimply: TfrmSimply
         end
         object cmbalways: TComboBox
           Left = 488
-          Height = 73
           Hint = 'Files to always add (use space as delimiter)'
           Top = 580
           Width = 504
@@ -1003,7 +989,6 @@ object frmSimply: TfrmSimply
         end
         object cmbDrive: TComboBox
           Left = 32
-          Height = 73
           Top = 88
           Width = 1000
           Items.Strings = (

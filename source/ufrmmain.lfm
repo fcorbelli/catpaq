@@ -151,7 +151,6 @@ object frmMain: TfrmMain
         TabOrder = 2
         object cmbAddDrives: TComboBox
           Left = 272
-          Height = 49
           Top = 2
           Width = 364
           Style = csDropDownList
@@ -581,7 +580,6 @@ object frmMain: TfrmMain
         TabOrder = 4
         object cbLanguage: TComboBox
           Left = 50
-          Height = 49
           Top = 8
           Width = 750
           Style = csDropDownList
