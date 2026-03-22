@@ -154,7 +154,6 @@ object frmMain: TfrmMain
           Height = 49
           Top = 2
           Width = 364
-          ItemHeight = 41
           Style = csDropDownList
           TabOrder = 0
           OnChange = cmbAddDrivesChange
@@ -585,7 +584,6 @@ object frmMain: TfrmMain
           Height = 49
           Top = 8
           Width = 750
-          ItemHeight = 41
           Style = csDropDownList
           TabOrder = 0
           OnChange = cbLanguageChange

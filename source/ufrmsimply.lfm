@@ -130,7 +130,6 @@ object frmSimply: TfrmSimply
       Top = 16
       Width = 911
       Anchors = [akTop, akLeft, akRight]
-      ItemHeight = 65
       TabOrder = 1
       OnChange = cmbArchiveNameChange
     end
@@ -388,7 +387,6 @@ object frmSimply: TfrmSimply
           Hint = 'Hash algorithm used to verify file integrity inside the archive. XXHASH is fast and recommended'
           Top = 162
           Width = 504
-          ItemHeight = 65
           ItemIndex = 1
           Items.Strings = (
             '(NONE)'
@@ -422,7 +420,6 @@ object frmSimply: TfrmSimply
           Hint = 'Compression level: 0=Store (fastest, no compression) up to 5=Top (slowest, best ratio). Default is 1'
           Top = 82
           Width = 504
-          ItemHeight = 65
           Style = csDropDownList
           TabOrder = 1
           OnChange = cmbCompressionLevelChange
@@ -440,7 +437,6 @@ object frmSimply: TfrmSimply
           Hint = 'Archive format: Normal (no encryption), AES (symmetric encryption), Franzen (alternative encryption), or both'
           Top = 6
           Width = 504
-          ItemHeight = 65
           Style = csDropDownList
           TabOrder = 2
           OnChange = cmbArchiveFormatChange
@@ -465,7 +461,6 @@ object frmSimply: TfrmSimply
           Hint = 'Multipart mode: split the archive into numbered parts (e.g. _? for up to 9 parts). NO = single archive'
           Top = 236
           Width = 504
-          ItemHeight = 65
           ItemIndex = 0
           Items.Strings = (
             '(NO-single archive)'
@@ -493,7 +488,6 @@ object frmSimply: TfrmSimply
           Hint = 'Chunked mode: limit each archive chunk to a specific size (useful for optical media or FAT32 drives)'
           Top = 315
           Width = 504
-          ItemHeight = 65
           ItemIndex = 0
           Items.Strings = (
             'NO'
@@ -593,7 +587,6 @@ object frmSimply: TfrmSimply
           Hint = 'Select the number of concurrent threads'
           Top = 8
           Width = 504
-          ItemHeight = 65
           Items.Strings = (
             'MAX'
             '1'
@@ -637,7 +630,6 @@ object frmSimply: TfrmSimply
           Hint = 'Select fragment size. Smaller number=smaller size, but higher workload'
           Top = 89
           Width = 504
-          ItemHeight = 65
           Items.Strings = (
             'DEFAULT'
             '0 1kb'
@@ -669,7 +661,6 @@ object frmSimply: TfrmSimply
           Hint = 'Average size of blocks'
           Top = 174
           Width = 504
-          ItemHeight = 65
           Items.Strings = (
             'DEFAULT'
             '0 1MB'
@@ -777,7 +768,6 @@ object frmSimply: TfrmSimply
           Hint = 'Minimum file size (ex. 1000, 10M, 20GB)'
           Top = 12
           Width = 504
-          ItemHeight = 65
           Items.Strings = (
             'NONE'
             '10M'
@@ -803,7 +793,6 @@ object frmSimply: TfrmSimply
           Hint = 'Maximum file size'
           Top = 94
           Width = 504
-          ItemHeight = 65
           Items.Strings = (
             'NONE'
             '10M'
@@ -931,7 +920,6 @@ object frmSimply: TfrmSimply
           Hint = 'Files to exclude (use space as delimiter)'
           Top = 408
           Width = 504
-          ItemHeight = 65
           Items.Strings = (
             'NONE'
           )
@@ -944,7 +932,6 @@ object frmSimply: TfrmSimply
           Height = 73
           Top = 492
           Width = 504
-          ItemHeight = 65
           Items.Strings = (
             'NONE'
           )
@@ -958,7 +945,6 @@ object frmSimply: TfrmSimply
           Hint = 'Files to always add (use space as delimiter)'
           Top = 580
           Width = 504
-          ItemHeight = 65
           Items.Strings = (
             'NONE'
           )
@@ -1020,7 +1006,6 @@ object frmSimply: TfrmSimply
           Height = 73
           Top = 88
           Width = 1000
-          ItemHeight = 65
           Items.Strings = (
             '(C) Local disk'
             '(D) 990p'

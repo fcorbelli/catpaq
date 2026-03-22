@@ -48,7 +48,6 @@ object frmExtract: TfrmExtract
       Top = 136
       Width = 1490
       Anchors = [akTop, akLeft, akRight]
-      ItemHeight = 41
       TabOrder = 0
       OnKeyDown = cmbDestPathKeyDown
     end
