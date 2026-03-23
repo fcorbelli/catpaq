@@ -478,7 +478,7 @@ type
     constructor Create(const ACommand: AnsiString;
                        AZpaqRun:   TZpaqRunCommand;
                        AZpaqReset: TZpaqResetProc);
-    function ThreadHandle: THandle;
+    {$IFDEF WINDOWS}function ThreadHandle: THandle;{$ENDIF}
   end;
 
 var
@@ -530,10 +530,12 @@ begin
   end;
 end;
 
+{$IFDEF WINDOWS}
 function TDLLListThread.ThreadHandle: THandle;
 begin
   Result := Handle;
 end;
+{$ENDIF}
 
 { === FastDLL callback — chiamata dal TDLLListThread, NON dal thread principale.
   Non tocca direttamente i controlli GUI: usa QueueAsyncCall per il progresso
