@@ -76,8 +76,13 @@ end;
 constructor TUpdateChecker.Create;
 begin
   {$IFDEF WINDOWS}
+  {$IFDEF CPU32}
+  FVersionURL := 'http://www.francocorbelli.it/catpaq/latest/win32/version32.txt';
+  FBaseURL    := 'http://www.francocorbelli.it/catpaq/latest/win32/';
+  {$ELSE}
   FVersionURL := 'http://www.francocorbelli.it/catpaq/latest/win64/version.txt';
   FBaseURL    := 'http://www.francocorbelli.it/catpaq/latest/win64/';
+  {$ENDIF}
   {$ELSE}
   {$IFDEF DARWIN}
   FVersionURL := 'http://www.francocorbelli.it/catpaq/latest/macos/version.txt';
@@ -173,7 +178,7 @@ var
   c: Char;
 const
   MaxLines = 11;
-  MinLines = 9;
+  MinLines = 7;   // 7 = formato 32-bit (build + 2 file x 3 righe)
   MaxSize  = 1024;
   AllowedChars = ['0'..'9', 'a'..'f', 'A'..'F', '/', ':', ' ', #13, #10];
 begin
@@ -206,7 +211,7 @@ begin
                     ' (expected ' + IntToStr(MinLines) + '..' + IntToStr(MaxLines) + ')';
       Log(FLastError); Exit;
     end;
-    if (Length(Lines[0]) < 1) or (Length(Lines[0]) > 3) then
+    if (Length(Lines[0]) < 1) or (Length(Lines[0]) > 5) then
     begin
       FLastError := 'ValidateVersionFile: line[0] bad length=' + IntToStr(Length(Lines[0]));
       Log(FLastError); Exit;
@@ -216,35 +221,43 @@ begin
       FLastError := 'ValidateVersionFile: line[0] not a number: "' + Lines[0] + '"';
       Log(FLastError); Exit;
     end;
+    // line[1]: data catpaq
     if Length(Lines[1]) <> 19 then
     begin
       FLastError := 'ValidateVersionFile: line[1] length=' + IntToStr(Length(Lines[1])) + ' expected 19';
       Log(FLastError); Exit;
     end;
-    if Length(Lines[4]) <> 19 then
-    begin
-      FLastError := 'ValidateVersionFile: line[4] length=' + IntToStr(Length(Lines[4])) + ' expected 19';
-      Log(FLastError); Exit;
-    end;
-    if Length(Lines[7]) <> 19 then
-    begin
-      FLastError := 'ValidateVersionFile: line[7] length=' + IntToStr(Length(Lines[7])) + ' expected 19';
-      Log(FLastError); Exit;
-    end;
+    // line[2]: hash catpaq
     if Length(Lines[2]) <> 64 then
     begin
       FLastError := 'ValidateVersionFile: line[2] length=' + IntToStr(Length(Lines[2])) + ' expected 64';
       Log(FLastError); Exit;
     end;
+    // line[4]: data exe/xp
+    if Length(Lines[4]) <> 19 then
+    begin
+      FLastError := 'ValidateVersionFile: line[4] length=' + IntToStr(Length(Lines[4])) + ' expected 19';
+      Log(FLastError); Exit;
+    end;
+    // line[5]: hash exe/xp
     if Length(Lines[5]) <> 64 then
     begin
       FLastError := 'ValidateVersionFile: line[5] length=' + IntToStr(Length(Lines[5])) + ' expected 64';
       Log(FLastError); Exit;
     end;
-    if Length(Lines[8]) <> 64 then
+    // Se ci sono 9+ righe (formato 64-bit), valida anche la DLL
+    if Lines.Count >= 9 then
     begin
-      FLastError := 'ValidateVersionFile: line[8] length=' + IntToStr(Length(Lines[8])) + ' expected 64';
-      Log(FLastError); Exit;
+      if Length(Lines[7]) <> 19 then
+      begin
+        FLastError := 'ValidateVersionFile: line[7] length=' + IntToStr(Length(Lines[7])) + ' expected 19';
+        Log(FLastError); Exit;
+      end;
+      if Length(Lines[8]) <> 64 then
+      begin
+        FLastError := 'ValidateVersionFile: line[8] length=' + IntToStr(Length(Lines[8])) + ' expected 64';
+        Log(FLastError); Exit;
+      end;
     end;
     Result := True;
     Log('ValidateVersionFile: OK');
@@ -285,10 +298,14 @@ begin
     Result.EXEInfo.DateTime       := Lines[4];
     Result.EXEInfo.SHA256Hash     := LowerCase(Lines[5]);
     Result.EXEInfo.FileSize       := StrToInt64Def(Lines[6], 0);
-    Result.DLLInfo.DateTime       := Lines[7];
-    Result.DLLInfo.SHA256Hash     := LowerCase(Lines[8]);
-    if Lines.Count > 9 then
-      Result.DLLInfo.FileSize := StrToInt64Def(Lines[9], 0);
+    // Formato 64-bit: righe 7-9 contengono la DLL
+    if Lines.Count >= 9 then
+    begin
+      Result.DLLInfo.DateTime   := Lines[7];
+      Result.DLLInfo.SHA256Hash := LowerCase(Lines[8]);
+      if Lines.Count > 9 then
+        Result.DLLInfo.FileSize := StrToInt64Def(Lines[9], 0);
+    end;
     Result.Valid := True;
     Log('ParseVersionFile: OK');
     Log('  Catpaq build=' + IntToStr(Result.CatpaqInfo.BuildNumber) +
@@ -384,9 +401,15 @@ begin
 
   // --- zpaqfranz ---
   {$IFDEF WINDOWS}
+  {$IFDEF CPU32}
+  Log('DownloadUpdate: downloading zpaqfranzxp.exe...');
+  if not DownloadFile(FBaseURL + 'zpaqfranzxp.exe', EXEData) then
+  begin Log('DownloadUpdate: FAILED zpaqfranzxp.exe - ' + FLastError); Exit; end;
+  {$ELSE}
   Log('DownloadUpdate: downloading zpaqfranz.exe...');
   if not DownloadFile(FBaseURL + 'zpaqfranz.exe', EXEData) then
   begin Log('DownloadUpdate: FAILED zpaqfranz.exe - ' + FLastError); Exit; end;
+  {$ENDIF}
   {$ELSE}
   Log('DownloadUpdate: downloading zpaqfranz...');
   if not DownloadFile(FBaseURL + 'zpaqfranz', EXEData) then
@@ -406,7 +429,8 @@ begin
   end;
 
   {$IFDEF WINDOWS}
-  // --- zpaqfranz.dll (solo Windows) ---
+  {$IFNDEF CPU32}
+  // --- zpaqfranz.dll (solo Windows 64-bit) ---
   DLLData := nil;
   Log('DownloadUpdate: downloading zpaqfranz.dll...');
   if not DownloadFile(FBaseURL + 'zpaqfranz.dll', DLLData) then
@@ -423,13 +447,20 @@ begin
     FLastError := 'zpaqfranz.dll hash mismatch';
     Log('DownloadUpdate: FAILED - ' + FLastError); Exit;
   end;
+  {$ENDIF} // CPU32
   {$ENDIF}
 
   // --- Salva in temp ---
   {$IFDEF WINDOWS}
+  {$IFDEF CPU32}
+  CatpaqPath := FTempDir + 'catpaq32.exe';
+  EXEPath    := FTempDir + 'zpaqfranzxp.exe';
+  DLLPath    := '';
+  {$ELSE}
   CatpaqPath := FTempDir + 'catpaq.exe';
   EXEPath    := FTempDir + 'zpaqfranz.exe';
   DLLPath    := FTempDir + 'zpaqfranz.dll';
+  {$ENDIF}
   {$ELSE}
   CatpaqPath := FTempDir + 'catpaq';
   EXEPath    := FTempDir + 'zpaqfranz';
@@ -470,7 +501,11 @@ end;
 
 function TUpdateChecker.DownloadFile_Public(out EXEData: TBytes): Boolean;
 {$IFDEF WINDOWS}
-const ExeName = 'zpaqfranz.exe';
+  {$IFDEF CPU32}
+  const ExeName = 'zpaqfranzxp.exe';
+  {$ELSE}
+  const ExeName = 'zpaqfranz.exe';
+  {$ENDIF}
 {$ELSE}
 const ExeName = 'zpaqfranz';
 {$ENDIF}

@@ -33,12 +33,16 @@ const
 
   // SHA256 hash atteso dell'eseguibile - AGGIORNATO AUTOMATICAMENTE da aggiorna.exe
   // @@DLL_HASH_START@@
-  EXPECTED_DLL_HASH = 'aaad8c75b39df85d3fe77c9218dd145034f08881bf7bb53ee676d679d6950763';
+  EXPECTED_DLL_HASH = '98fd53b904249675ea854b92351ac5ad374de957e298e218083e66b83ac296be';
   // @@DLL_HASH_END@@
-  
+
   // @@EXE_HASH_START@@
   EXPECTED_EXE_HASH = '1f7e167bbb9a938af533a22bab10b7aa7691571b6f404dfe9d7f7e06e9c7e28e';
   // @@EXE_HASH_END@@
+
+  // @@XP_HASH_START@@
+  EXPECTED_XP_HASH = '8bd93db91ace035be935a809eb99b8ce4c20fada77232c38aca881fee9faff99';
+  // @@XP_HASH_END@@
 
 var
   // Password da riga di comando (globali per uso CLI-style)
@@ -424,6 +428,7 @@ type
     function ExecuteStartupChecks: Boolean; // True = OK, False = errore/avviso
     function ValidateDLL: Boolean;
     function ValidateEXE: Boolean;
+    function ValidateXP: Boolean;
     procedure SortLvAddFiles(AColumn: Integer; AAscending: Boolean);
     procedure SortFilteredFiles(AColumn: Integer; AAscending: Boolean);
 
@@ -686,10 +691,18 @@ begin
     if VerStr <> '' then
     begin
       BuildNum := StrToIntDef(Copy(VerStr, LastDelimiter('.', VerStr) + 1, Length(VerStr)), 0);
-      Caption := Format('Catpaq V1.0.0 build %d', [BuildNum]);
+      {$IFDEF CPU32}
+      Caption := Format('Catpaq V1.0.0 build %d [32-bit]', [BuildNum]);
+      {$ELSE}
+      Caption := Format('Catpaq V1.0.0 build %d [64-bit]', [BuildNum]);
+      {$ENDIF}
     end
     else
-      Caption := 'Catpaq V1.0.0 build 0';
+      {$IFDEF CPU32}
+      Caption := 'Catpaq V1.0.0 build 0 [32-bit]';
+      {$ELSE}
+      Caption := 'Catpaq V1.0.0 build 0 [64-bit]';
+      {$ENDIF}
   finally
     FileVerInfo.Free;
   end;
@@ -1126,9 +1139,17 @@ begin
 
   // --- Determina i path attesi (platform-specific) ---
   {$IFDEF WINDOWS}
+  {$IFDEF CPU32}
+  // 32-bit: usa zpaqfranzxp.exe direttamente, niente DLL
+  ExePath  := ExtractFilePath(ParamStr(0)) + 'zpaqfranzxp.exe';
+  DllFound := False; // non usata in modalità 32-bit
+  DllPath  := '';
+  {$ELSE}
+  // 64-bit: usa zpaqfranz.exe + zpaqfranz.dll
   ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.exe';
   DllPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
   DllFound := False;
+  {$ENDIF}
   {$ELSE}
   // macOS e Linux: solo l'eseguibile zpaqfranz è richiesto (niente DLL)
   ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz';
@@ -1139,6 +1160,51 @@ begin
   AddLog('EXE present: ' + BoolToStr(ExeFound, 'YES', 'NO') + '  [' + ExePath + ']');
 
   {$IFDEF WINDOWS}
+  {$IFDEF CPU32}
+  // 32-bit: solo zpaqfranzxp.exe richiesto, nessuna DLL
+  if not ExeFound then
+  begin
+    AddLog('WARNING: zpaqfranzxp.exe is missing.');
+    MessageDlg('Missing file',
+      'zpaqfranzxp.exe is missing.' + sLineBreak +
+      'The 32-bit version requires zpaqfranzxp.exe.' + sLineBreak + sLineBreak +
+      'Expected location: ' + ExePath + sLineBreak +
+      'The application will try to download it.',
+      mtWarning, [mbOK], 0);
+    AddLog('Missing zpaqfranzxp.exe. Offering download...');
+    Application.ProcessMessages;
+    if TryDownloadDLL then  // TryDownloadDLL scarica anche l'exe in modalità 32-bit
+    begin
+      ExeFound := FileExists(ExePath);
+      if not ExeFound then
+      begin
+        AddLog('ERROR: Download incomplete. Open disabled.');
+        btnOpen.Enabled := False;
+        Exit;
+      end;
+    end
+    else
+    begin
+      AddLog('Download cancelled or failed. Open disabled.');
+      btnOpen.Enabled := False;
+      Exit;
+    end;
+  end;
+  // Valida solo l'exe (hash di zpaqfranzxp.exe)
+  if not ValidateXP then
+  begin
+    AddLog('FATAL: zpaqfranzxp.exe hash validation failed. Blocking open.');
+    btnOpen.Enabled := False;
+    Exit;
+  end;
+  // In modalità 32-bit il bridge non usa DLL: usa direttamente l'exe
+  AddLog('32-bit mode: using zpaqfranzxp.exe directly (no DLL).');
+  // Configura il bridge con il path di zpaqfranzxp.exe
+  FBridge.LoadDLL(ExtractFilePath(ParamStr(0)) + 'zpaqfranzxp.exe');
+  btnOpen.Enabled := True;
+  Result := True;
+  {$ELSE}
+  // 64-bit: controlla presenza DLL
   DllFound := FileExists(DllPath);
   AddLog('DLL present: ' + BoolToStr(DllFound, 'YES', 'NO') + '  [' + DllPath + ']');
 
@@ -1230,7 +1296,7 @@ begin
     end;
   end;
 
-  // --- Windows: carica il bridge (richiede ENTRAMBI i file) ---
+  // --- Windows 64-bit: carica il bridge (richiede ENTRAMBI i file) ---
   if FBridge.LoadDLL then
   begin
     AddLog('Bridge loaded: ' + FBridge.DLLPath);
@@ -1244,6 +1310,7 @@ begin
            ExtractFilePath(ParamStr(0)));
     btnOpen.Enabled := False;
   end;
+  {$ENDIF} // CPU32
 
   {$ELSE}
   // --- macOS / Linux: solo zpaqfranz è necessario ---
@@ -1392,6 +1459,48 @@ begin
   {$ENDIF}
 end;
 
+function TfrmMain.ValidateXP: Boolean;
+{$IFDEF CPU32}
+var
+  XPPath, ActualHash: string;
+{$ENDIF}
+begin
+  Result := True;
+  {$IFDEF CPU32}
+  if EXPECTED_XP_HASH = '0000000000000000000000000000000000000000000000000000000000000000' then
+  begin
+    AddLog('XP validation: SKIPPED (development mode)');
+    Exit;
+  end;
+  XPPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranzxp.exe';
+  if not FileExists(XPPath) then Exit;
+  AddLog('XP validation: Computing SHA256...');
+  ActualHash := SHA256File(XPPath);
+  if ActualHash = '' then
+  begin
+    AddLog('XP validation: ERROR - Could not compute hash');
+    Result := False;
+    Exit;
+  end;
+  AddLog('XP Expected: ' + EXPECTED_XP_HASH);
+  AddLog('XP Actual:   ' + ActualHash);
+  if LowerCase(ActualHash) <> LowerCase(EXPECTED_XP_HASH) then
+  begin
+    AddLog('XP validation: FAILED - Hash mismatch!');
+    Result := False;
+    MessageDlg('Validation Error',
+      'Security check failed for zpaqfranzxp.exe!' + sLineBreak +
+      'The file does not match the expected version.' + sLineBreak +
+      'The file may be corrupted or tampered with.',
+      mtError, [mbOK], 0);
+  end
+  else
+    AddLog('XP validation: PASSED');
+  {$ELSE}
+  AddLog('XP validation: SKIPPED (64-bit build)');
+  {$ENDIF}
+end;
+
 function TfrmMain.TryDownloadDLL: Boolean;
 {$IFDEF WINDOWS}
 var
@@ -1406,6 +1515,83 @@ begin
   AddLog('--- TryDownloadDLL: START ---');
   AddLog('App path: ' + ExtractFilePath(ParamStr(0)));
 
+  {$IFDEF CPU32}
+  // === 32-bit: scarica solo zpaqfranzxp.exe ===
+  if MessageDlg('File Missing',
+    'zpaqfranzxp.exe is required but not found.' + sLineBreak +
+    'Do you want to download it now?',
+    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+  begin
+    AddLog('TryDownloadDLL: user cancelled.');
+    Exit;
+  end;
+
+  PageControl1.ActivePage := TabLog;
+  pgrProgresso.Max      := 100;
+  pgrProgresso.Position := 0;
+  pgrProgresso.Visible  := True;
+  Application.ProcessMessages;
+
+  Checker := TUpdateChecker.Create;
+  Checker.OnLog      := @AddLog;
+  Checker.OnProgress := @HandleDownloadProgress;
+  try
+    if not Checker.CheckForUpdate(0, UpdateInfo) then
+    begin
+      if not UpdateInfo.Valid then
+      begin
+        ShowMessage('Failed to connect to update server.' + sLineBreak +
+          'Check the Log tab for details.');
+        Exit;
+      end;
+    end;
+    Application.ProcessMessages;
+
+    AddLog('Downloading zpaqfranzxp.exe (' +
+           IntToStr(UpdateInfo.EXEInfo.FileSize div 1024) + ' KB)...');
+    if not Checker.DownloadFile_Public(ExeData) then
+    begin
+      ShowMessage('Failed to download zpaqfranzxp.exe.' + sLineBreak +
+        'Check the Log tab for details.');
+      Exit;
+    end;
+
+    ExeHash := Checker.CalculateSHA256FromBytes_Public(ExeData);
+    AddLog('XP EXE hash computed:  ' + ExeHash);
+    AddLog('XP EXE hash expected:  ' + UpdateInfo.EXEInfo.SHA256Hash);
+    if ExeHash <> UpdateInfo.EXEInfo.SHA256Hash then
+    begin
+      AddLog('TryDownloadDLL: zpaqfranzxp.exe HASH MISMATCH');
+      ShowMessage('Security check failed on zpaqfranzxp.exe.');
+      Exit;
+    end;
+
+    ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranzxp.exe';
+    try
+      AddLog('Saving zpaqfranzxp.exe to ' + ExePath);
+      FS := TFileStream.Create(ExePath, fmCreate);
+      try
+        if Length(ExeData) > 0 then FS.Write(ExeData[0], Length(ExeData));
+      finally FS.Free; end;
+      AddLog('zpaqfranzxp.exe saved successfully.');
+      Result := True;
+    except
+      on E: Exception do
+      begin
+        AddLog('TryDownloadDLL: save FAILED - ' + E.ClassName + ': ' + E.Message);
+        ShowMessage('Cannot save file. Check folder permissions.');
+      end;
+    end;
+  finally
+    Checker.Free;
+    AddLog('--- TryDownloadDLL: END result=' + BoolToStr(Result, 'TRUE', 'FALSE') + ' ---');
+    pgrProgressLog.Position := 0;
+    pgrProgressLog.Visible  := False;
+    pgrProgresso.Position   := 0;
+    pgrProgresso.Visible    := False;
+  end;
+  {$ELSE}
+  // === 64-bit: scarica zpaqfranz.exe + zpaqfranz.dll ===
   if MessageDlg(S('dlg_dll_missing_title', 'Files Missing'),
     S('dlg_dll_missing_msg',
       'zpaqfranz.exe and zpaqfranz.dll are required but not found.' + sLineBreak +
@@ -1518,6 +1704,7 @@ begin
     pgrProgresso.Position   := 0;
     pgrProgresso.Visible    := False;
   end;
+  {$ENDIF} // CPU32
 end;
 {$ELSE}
 // Su macOS e Linux il download automatico non è disponibile.
@@ -2460,7 +2647,26 @@ begin
   FLoadStartTime := Now;
 
   {$IFDEF WINDOWS}
-  // === WINDOWS: prima prova la DLL (listing in thread separato), poi fallback EXE ===
+  {$IFDEF CPU32}
+  // === 32-bit: niente DLL, usa zpaqfranzxp.exe via bridge ===
+  lblLoadInfo.Caption := S('lbl_loading', 'Loading via zpaqfranzxp...');
+  Application.ProcessMessages;
+  AddLog('32-bit mode: running pakka list via zpaqfranzxp.exe...');
+  FBridge.IsDataMode := True;
+  TimerUpdate.Enabled := True;
+  if not FBridge.RunCommandAsync(BuildCommandString) then
+  begin
+    AddLog('ERROR: Failed to start command');
+    btnOpen.Enabled := True;
+    TimerUpdate.Enabled := False;
+    lblLoadInfo.Caption := '';
+    FLoadingArchive := False;
+    FLogProgressLineIndex := -1;
+    SetLoadingState(False);
+  end;
+  Exit;
+  {$ENDIF}
+  // === 64-bit WINDOWS: prima prova la DLL (listing in thread separato), poi fallback EXE ===
   lblLoadInfo.Caption := S('lbl_loading', 'Loading fast via DLL...');
   Application.ProcessMessages;
 

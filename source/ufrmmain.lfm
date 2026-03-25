@@ -8,7 +8,7 @@ object frmMain: TfrmMain
   ClientWidth = 3125
   DesignTimePPI = 240
   Position = poScreenCenter
-  LCLVersion = '4.4.0.0'
+  LCLVersion = '4.6.0.0'
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnShow = FormShow
@@ -151,8 +151,10 @@ object frmMain: TfrmMain
         TabOrder = 2
         object cmbAddDrives: TComboBox
           Left = 272
+          Height = 49
           Top = 2
           Width = 364
+          ItemHeight = 41
           Style = csDropDownList
           TabOrder = 0
           OnChange = cmbAddDrivesChange
@@ -580,8 +582,10 @@ object frmMain: TfrmMain
         TabOrder = 4
         object cbLanguage: TComboBox
           Left = 50
+          Height = 49
           Top = 8
           Width = 750
+          ItemHeight = 41
           Style = csDropDownList
           TabOrder = 0
           OnChange = cbLanguageChange
