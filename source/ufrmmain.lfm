@@ -864,6 +864,13 @@ object frmMain: TfrmMain
       Caption = 'Extract...'
       OnClick = mnuArchiveExtract1Click
     end
+    object mnuArchiveExtractAll: TMenuItem
+      Caption = 'Extract all...'
+      OnClick = mnuArchiveExtractAllClick
+    end
+    object mnuArchiveSep2: TMenuItem
+      Caption = '-'
+    end
     object mnuArchiveExtract2: TMenuItem
       Caption = 'Test'
       OnClick = mnuArchiveExtract2Click

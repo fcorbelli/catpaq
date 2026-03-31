@@ -1,7 +1,7 @@
 object frmExtract: TfrmExtract
-  Left = 342
+  Left = 492
   Height = 1500
-  Top = 278
+  Top = 520
   Width = 1700
   Caption = 'Extract from archive'
   ClientHeight = 1500
@@ -9,7 +9,7 @@ object frmExtract: TfrmExtract
   DesignTimePPI = 240
   KeyPreview = True
   Position = poScreenCenter
-  LCLVersion = '4.4.0.0'
+  LCLVersion = '4.6.0.0'
   OnClose = FormClose
   OnCreate = FormCreate
   OnDestroy = FormDestroy
@@ -44,9 +44,11 @@ object frmExtract: TfrmExtract
     end
     object cmbDestPath: TComboBox
       Left = 168
+      Height = 49
       Top = 136
       Width = 1490
       Anchors = [akTop, akLeft, akRight]
+      ItemHeight = 41
       TabOrder = 0
       OnKeyDown = cmbDestPathKeyDown
     end

@@ -57,7 +57,9 @@ type
     FIniFileName: string;
 
     FArchivePath: string;
-    FFileName: string;
+    FFileName: string;         // singolo file (o vuoto = tutto)
+    FFileNames: TStringList;   // lista file selezionati (per extract multi)
+    FExtractAllMode: Boolean;  // True = extract all (nessun filtro file, -to = cartella)
     FVersion: Integer;
     FPasswordAES: string;
     FPasswordFranzen: string;
@@ -90,6 +92,13 @@ type
       const AArchivePath: string;
       const AFileName: string;
       AVersion: Integer;
+      const APasswordAES: string;
+      const APasswordFranzen: string);
+
+    { Estrae una lista di N file; il campo To: deve contenere N path separati da spazio }
+    procedure SetExtractionParamsMulti(
+      const AArchivePath: string;
+      const AFileNames: TStringList;
       const APasswordAES: string;
       const APasswordFranzen: string);
 
@@ -169,7 +178,14 @@ begin
   else
   begin
     Caption              := S('extract_title_extract', 'Extract from archive');
-    lblDestPath.Caption  := S('extract_lbl_dest_folder', 'Destination folder:');
+    { Etichetta adattiva: cartella se extract-all, file se singolo/multi }
+    if FExtractAllMode then
+      lblDestPath.Caption := S('extract_lbl_dest_folder', 'Destination folder:')
+    else if FFileNames.Count > 1 then
+      lblDestPath.Caption := S('extract_lbl_dest_folder', 'Destination folder:')
+    else
+      lblDestPath.Caption := S('extract_lbl_dest_file',
+        'Destination folder (or file if single):');
     btnOK.Caption        := S('extract_btn_extract', 'Extract');
     SelectDirectoryDialog1.Title := S('extract_dlg_dest_folder', 'Select destination folder');
     pnlExtraFields.Visible := True;
@@ -210,6 +226,9 @@ begin
   FSavedOnProgress := nil;
   FSavedIsDataMode := False;
 
+  FFileNames       := TStringList.Create;
+  FExtractAllMode  := False;
+
   FLogPollTimer          := TTimer.Create(Self);
   FLogPollTimer.Interval := 150;
   FLogPollTimer.Enabled  := False;
@@ -236,6 +255,7 @@ procedure TfrmExtract.FormDestroy(Sender: TObject);
 begin
   FLogPollTimer.Enabled := False;
   RestoreMainBridge;
+  FFileNames.Free;
   FIniFile.Free;
 end;
 
@@ -320,8 +340,12 @@ procedure TfrmExtract.SetExtractionParams(
   const APasswordFranzen: string);
 begin
   FMode            := emExtract;
+  FExtractAllMode  := False;
   FArchivePath     := AArchivePath;
   FFileName        := AFileName;
+  FFileNames.Clear;
+  if AFileName <> '' then
+    FFileNames.Add(AFileName);
   FVersion         := AVersion;
   FPasswordAES     := APasswordAES;
   FPasswordFranzen := APasswordFranzen;
@@ -338,6 +362,64 @@ begin
     lblInfo.Caption := S('extract_lbl_archive', 'Archive') + ': ' + ExtractFileName(FArchivePath) +
                        '   (' + S('extract_lbl_everything', 'extract everything') + ')';
 
+  { Hint sul campo To: per singolo file }
+  if FFileName <> '' then
+    edtTo.TextHint := S('extract_hint_to_file', 'Destination file path (leave empty = use archive path)')
+  else
+    edtTo.TextHint := '';
+
+  UpdateUIForMode;
+end;
+
+{ Estrae una lista di N file dall'archivio.
+  Il campo edtTo deve contenere esattamente N percorsi separati da spazio. }
+procedure TfrmExtract.SetExtractionParamsMulti(
+  const AArchivePath: string;
+  const AFileNames: TStringList;
+  const APasswordAES: string;
+  const APasswordFranzen: string);
+var
+  I: Integer;
+  FileList: string;
+begin
+  FMode            := emExtract;
+  FExtractAllMode  := False;
+  FArchivePath     := AArchivePath;
+  FVersion         := -1;
+  FPasswordAES     := APasswordAES;
+  FPasswordFranzen := APasswordFranzen;
+
+  FFileNames.Clear;
+  FFileName := '';
+  FileList  := '';
+  for I := 0 to AFileNames.Count - 1 do
+  begin
+    FFileNames.Add(AFileNames[I]);
+    if FFileName = '' then
+      FFileName := AFileNames[I]
+    else
+      FFileName := FFileName + ' ' + AFileNames[I];
+    if FileList <> '' then FileList := FileList + ', ';
+    FileList := FileList + ExtractFileName(ExcludeTrailingPathDelimiter(AFileNames[I]));
+  end;
+
+  if AFileNames.Count = 1 then
+    Caption := S('extract_title_file', 'Extract') + ': ' + FileList
+  else
+    Caption := Format(S('extract_title_multi', 'Extract %d files'), [AFileNames.Count]);
+
+  lblInfo.Caption := Format(
+    S('extract_lbl_multi', 'Files (%d): %s'), [AFileNames.Count, FileList]);
+
+  { Hint esplicativo: N file → N path nel campo To: }
+  if AFileNames.Count = 1 then
+    edtTo.TextHint := S('extract_hint_to_file', 'Destination file path (leave empty = use archive path)')
+  else
+    edtTo.TextHint := Format(
+      S('extract_hint_to_multi',
+        'Enter exactly %d destination paths separated by spaces'),
+      [AFileNames.Count]);
+
   UpdateUIForMode;
 end;
 
@@ -346,8 +428,12 @@ procedure TfrmExtract.SetExtractionParamsAll(
   const APasswordAES: string;
   const APasswordFranzen: string);
 begin
+  FExtractAllMode := True;
   SetExtractionParams(AArchivePath, '', -1, APasswordAES, APasswordFranzen);
   Caption := S('extract_title_all', 'Extract everything from archive');
+  { In modalità "extract all" il -to è sempre una cartella }
+  edtTo.TextHint := S('extract_hint_to_folder',
+    'Leave empty: files extracted with their full path inside destination folder');
 end;
 
 procedure TfrmExtract.SetTestParams(
@@ -420,10 +506,56 @@ begin
     cmbDestPath.Items.Delete(cmbDestPath.Items.Count - 1);
 end;
 
+{ Divide una stringa in token separati da spazi, rispettando i blocchi
+  tra virgolette doppie. Restituisce il numero di token trovati. }
+function SplitTokens(const S: string; out Tokens: TStringDynArray): Integer;
+var
+  I, Len: Integer;
+  InQuote: Boolean;
+  Cur: string;
+begin
+  SetLength(Tokens, 0);
+  Len     := Length(S);
+  I       := 1;
+  InQuote := False;
+  Cur     := '';
+  while I <= Len do
+  begin
+    if S[I] = '"' then
+    begin
+      InQuote := not InQuote;
+      Inc(I);
+    end
+    else if (S[I] = ' ') and (not InQuote) then
+    begin
+      if Cur <> '' then
+      begin
+        SetLength(Tokens, Length(Tokens) + 1);
+        Tokens[High(Tokens)] := Cur;
+        Cur := '';
+      end;
+      Inc(I);
+    end
+    else
+    begin
+      Cur := Cur + S[I];
+      Inc(I);
+    end;
+  end;
+  if Cur <> '' then
+  begin
+    SetLength(Tokens, Length(Tokens) + 1);
+    Tokens[High(Tokens)] := Cur;
+  end;
+  Result := Length(Tokens);
+end;
+
 function TfrmExtract.BuildCommandLine: string;
 var
   DestPath: string;
   ToVal, FindVal, ReplaceVal: string;
+  ToTokens: TStringDynArray;
+  ToCount, I: Integer;
 begin
   DestPath := NormalizePath(Trim(cmbDestPath.Text));
 
@@ -437,10 +569,32 @@ begin
     if FPasswordFranzen <> '' then
       Result := Result + ' -franzen "' + FPasswordFranzen + '"';
     Result := Result + ' -catpaqmode';
-  end
-  else
+    Exit;
+  end;
+
+  { === Modalità EXTRACT === }
+  Result := 'x "' + NormalizePath(FArchivePath) + '"';
+
+  if FExtractAllMode then
   begin
-    Result := 'x "' + NormalizePath(FArchivePath) + '"';
+    { Extract all: nessun filtro file, -to è sempre una CARTELLA }
+    Result := Result + ' -to "' + DestPath + '"';
+    if FPasswordAES <> '' then
+      Result := Result + ' -key "' + FPasswordAES + '"';
+    if FPasswordFranzen <> '' then
+      Result := Result + ' -franzen "' + FPasswordFranzen + '"';
+    Result := Result + ' -catpaqmode';
+    Exit;
+  end;
+
+  { Extract selettivo: 1 o N file }
+  ToVal      := Trim(edtTo.Text);
+  FindVal    := Trim(edtFind.Text);
+  ReplaceVal := Trim(edtReplace.Text);
+
+  if FFileNames.Count <= 1 then
+  begin
+    { === Caso 1: un singolo file (o nessun filtro) === }
     if FFileName <> '' then
       Result := Result + ' "' + NormalizePath(FFileName) + '"';
     Result := Result + ' -to "' + DestPath + '"';
@@ -450,12 +604,42 @@ begin
       Result := Result + ' -key "' + FPasswordAES + '"';
     if FPasswordFranzen <> '' then
       Result := Result + ' -franzen "' + FPasswordFranzen + '"';
-
-    ToVal      := Trim(edtTo.Text);
-    FindVal    := Trim(edtFind.Text);
-    ReplaceVal := Trim(edtReplace.Text);
+    { -to aggiuntivo da edtTo (rinomina/reindirizza il singolo file estratto) }
     if ToVal <> '' then
-      Result := Result + ' -to "' + ToVal + '"';
+      Result := Result + ' -to "' + NormalizePath(ToVal) + '"';
+    if FindVal <> '' then
+      Result := Result + ' -find "' + FindVal + '"';
+    if ReplaceVal <> '' then
+      Result := Result + ' -replace "' + ReplaceVal + '"';
+    Result := Result + ' -catpaqmode';
+  end
+  else
+  begin
+    { === Caso 2: lista di N file → N parametri file + N parametri -to === }
+    { I nomi dei file vengono aggiunti tutti }
+    for I := 0 to FFileNames.Count - 1 do
+      Result := Result + ' "' + NormalizePath(FFileNames[I]) + '"';
+
+    { Il campo edtTo deve contenere N token separati da spazio }
+    ToCount := SplitTokens(ToVal, ToTokens);
+
+    if ToCount = FFileNames.Count then
+    begin
+      { N file → N destinazioni individuale: solo i -to specifici,
+        senza il -to cartella base (zpaqfranz usa i -to nell'ordine dei file) }
+      for I := 0 to ToCount - 1 do
+        Result := Result + ' -to "' + NormalizePath(ToTokens[I]) + '"';
+    end
+    else
+    begin
+      { To: vuoto o non specificato: usa la cartella di destinazione base }
+      Result := Result + ' -to "' + DestPath + '"';
+    end;
+
+    if FPasswordAES <> '' then
+      Result := Result + ' -key "' + FPasswordAES + '"';
+    if FPasswordFranzen <> '' then
+      Result := Result + ' -franzen "' + FPasswordFranzen + '"';
     if FindVal <> '' then
       Result := Result + ' -find "' + FindVal + '"';
     if ReplaceVal <> '' then
@@ -467,6 +651,9 @@ end;
 procedure TfrmExtract.ExecuteCommand;
 var
   DestPath, CommandLine: string;
+  ToVal: string;
+  ToTokens: TStringDynArray;
+  ToCount: Integer;
 begin
   DestPath := Trim(cmbDestPath.Text);
 
@@ -477,19 +664,68 @@ begin
     Exit;
   end;
 
+  { === Validazione campo To: per lista di N file === }
+  if (FMode = emExtract) and (not FExtractAllMode) and (FFileNames.Count > 1) then
+  begin
+    ToVal   := Trim(edtTo.Text);
+    ToCount := SplitTokens(ToVal, ToTokens);
+    if (ToVal <> '') and (ToCount <> FFileNames.Count) then
+    begin
+      ShowMessage(Format(
+        'To extract %d files you must specify exactly %d distinct destination paths' +
+        ' separated by spaces in the "To:" field.' + LineEnding + LineEnding +
+        'Currently found: %d path(s).' + LineEnding + LineEnding +
+        'Example for 2 files:' + LineEnding +
+        '  "Z:\dest\file1.cpp" "Z:\dest\file2.cpp"' + LineEnding +
+        'or without quotes if paths contain no spaces:' + LineEnding +
+        '  Z:\dest\file1.cpp Z:\dest\file2.cpp',
+        [FFileNames.Count, FFileNames.Count, ToCount]));
+      edtTo.SetFocus;
+      Exit;
+    end;
+  end;
+
   if DestPath <> '' then
   begin
-    if (FMode = emExtract) and DirectoryExists(DestPath) then
+    { Determina se DestPath è una CARTELLA o un FILE di destinazione.
+      - extract-all          → sempre cartella → ForceDirectories
+      - multi-file (N > 1)   → cartella base   → ForceDirectories
+      - singolo file         → FILE di dest    → NON creare la cartella,
+                               altrimenti zpaqfranz trova una dir con quel
+                               nome e non riesce a scrivere il file }
+    if FExtractAllMode or (FFileNames.Count > 1) then
     begin
-      if MessageDlg('The destination folder already exists.' + LineEnding +
-                    'Overwrite existing files?',
-                    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+      { Modalità cartella: verifica esistenza e crea se necessario }
+      if (FMode = emExtract) and DirectoryExists(DestPath) then
+      begin
+        if MessageDlg('The destination folder already exists.' + LineEnding +
+                      'Overwrite existing files?',
+                      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+          Exit;
+      end;
+      if not ForceDirectories(DestPath) then
+      begin
+        ShowMessage('Cannot create folder:' + LineEnding + DestPath);
         Exit;
-    end;
-    if not ForceDirectories(DestPath) then
+      end;
+    end
+    else
     begin
-      ShowMessage('Cannot create folder:' + LineEnding + DestPath);
-      Exit;
+      { Modalità file singolo: DestPath è il path del FILE da creare.
+        Creiamo solo la cartella PADRE se non esiste, mai DestPath stesso. }
+      if DirectoryExists(DestPath) then
+      begin
+        ShowMessage('Cannot extract: "' + DestPath + '" already exists as a folder.' +
+                    LineEnding + 'Please specify a file path, not a folder.');
+        Exit;
+      end;
+      { Crea la cartella padre se necessario }
+      if not ForceDirectories(ExtractFilePath(DestPath)) then
+      begin
+        ShowMessage('Cannot create parent folder:' + LineEnding +
+                    ExtractFilePath(DestPath));
+        Exit;
+      end;
     end;
   end;
 
@@ -516,8 +752,19 @@ begin
 
   CommandLine := BuildCommandLine;
 
-  if (FMode = emExtract) and (DestPath <> '') and DirectoryExists(DestPath) then
-    CommandLine := CommandLine + ' -force';
+  { -force:
+     - extract-all e cartella dest già esistente → overwrite
+     - singolo file o multi-file → sempre, perché -to punta a un FILE }
+  if FMode = emExtract then
+  begin
+    if FExtractAllMode then
+    begin
+      if (DestPath <> '') and DirectoryExists(DestPath) then
+        CommandLine := CommandLine + ' -force';
+    end
+    else
+      CommandLine := CommandLine + ' -force';  // file singolo o lista: -to è un file
+  end;
 
   if FMode = emTest then
   begin
@@ -532,11 +779,24 @@ begin
     memLog.Lines.Add('');
     memLog.Lines.Add('=== Starting Extraction ===');
     memLog.Lines.Add('Archive    : ' + FArchivePath);
-    if FFileName <> '' then
-      memLog.Lines.Add('File/Folder: ' + FFileName)
+    if FExtractAllMode then
+    begin
+      memLog.Lines.Add('File/Folder: (extract everything)');
+      memLog.Lines.Add('Mode       : all files → destination FOLDER');
+    end
+    else if FFileNames.Count > 1 then
+    begin
+      memLog.Lines.Add(Format('File/Folder: %d files selected', [FFileNames.Count]));
+      memLog.Lines.Add('Mode       : multi-file → individual -to destinations');
+    end
+    else if FFileName <> '' then
+    begin
+      memLog.Lines.Add('File/Folder: ' + FFileName);
+      memLog.Lines.Add('Mode       : single file → -to is a FILE path');
+    end
     else
       memLog.Lines.Add('File/Folder: (everything)');
-    if (FVersion > 0) and (FFileName <> '') then
+    if (FVersion > 0) and (FFileName <> '') and (FFileNames.Count <= 1) then
       memLog.Lines.Add('Version    : ' + IntToStr(FVersion))
     else
       memLog.Lines.Add('Version    : latest');

@@ -33,15 +33,15 @@ const
 
   // SHA256 hash atteso dell'eseguibile - AGGIORNATO AUTOMATICAMENTE da aggiorna.exe
   // @@DLL_HASH_START@@
-  EXPECTED_DLL_HASH = '98fd53b904249675ea854b92351ac5ad374de957e298e218083e66b83ac296be';
+  EXPECTED_DLL_HASH = '55b553c5e7e7c48ed8d329d7f931ee81800185b76c5bd76ca8c134876819f210';
   // @@DLL_HASH_END@@
 
   // @@EXE_HASH_START@@
-  EXPECTED_EXE_HASH = '1f7e167bbb9a938af533a22bab10b7aa7691571b6f404dfe9d7f7e06e9c7e28e';
+  EXPECTED_EXE_HASH = '4b71592f3bd17c9ddc7f8f1ad891ada0943b271ea236ebb15894bf4f33822c89';
   // @@EXE_HASH_END@@
 
   // @@XP_HASH_START@@
-  EXPECTED_XP_HASH = '8bd93db91ace035be935a809eb99b8ce4c20fada77232c38aca881fee9faff99';
+  EXPECTED_XP_HASH = '9507065bca616dcd6dfcc8985018b8b8b69ad874e29d44801f9e4f705cb4b046';
   // @@XP_HASH_END@@
 
 var
@@ -191,8 +191,10 @@ type
     PopupMenuArchiveBrowse: TPopupMenu;
     mnuArchiveBack: TMenuItem;
     mnuArchiveSep1: TMenuItem;
-    mnuArchiveExtract1: TMenuItem;
-    mnuArchiveExtract2: TMenuItem;
+    mnuArchiveExtract1: TMenuItem;   // Extract... (lista selezionati)
+    mnuArchiveExtractAll: TMenuItem; // Extract all... (tutto l'archivio)
+    mnuArchiveSep2: TMenuItem;
+    mnuArchiveExtract2: TMenuItem;   // Test
 
     procedure btnExit2Click(Sender: TObject);
     procedure btnHelp1Click(Sender: TObject);
@@ -222,6 +224,7 @@ type
     procedure PopupMenuArchiveBrowsePopup(Sender: TObject);
     procedure mnuArchiveBackClick(Sender: TObject);
     procedure mnuArchiveExtract1Click(Sender: TObject);
+    procedure mnuArchiveExtractAllClick(Sender: TObject);
     procedure mnuArchiveExtract2Click(Sender: TObject);
     procedure mnuCopyFileNameClick(Sender: TObject);
     procedure mnuCopyFullPathClick(Sender: TObject);
@@ -290,6 +293,8 @@ type
 
     procedure OnTimerStartup(Sender: TObject);
 
+    procedure chkAutoUpdateClick(Sender: TObject);
+
   private
     FArchivePath: string;
     FArchiveType: TArchiveType;
@@ -317,6 +322,10 @@ type
     FFormReady:        Boolean; // True dopo il restore iniziale: abilita salvataggio
     FTimerSave:        TTimer;  // polling 2s: salva se posizione/colonne cambiate
     FTimerRestore:     TTimer;  // one-shot 150ms: applica geometria INI dopo FormShow
+
+    // --- Checkbox "Check for updates at startup" (creato a runtime) ---
+    chkAutoUpdate: TCheckBox;
+    FAutoUpdateCheck: Boolean; // True = controlla aggiornamenti all'avvio
     // Geometria finestra letta dall'INI, da applicare via FTimerRestore
     FRestoredLeft:   Integer;
     FRestoredTop:    Integer;
@@ -420,6 +429,7 @@ type
     procedure LoadLanguage(const ALangName: string);
     procedure ScanLanguages;
     procedure ApplyLanguage;
+    procedure DoStartupUpdateCheck;   { controlla aggiornamenti all'avvio }
 
     function IsZpaqFile(const AFileName: string): Boolean;
     procedure UpdateZpaqButtons;
@@ -819,6 +829,15 @@ begin
   mnuAddHash.Add(mnuHashSSD);
   // -----------------------------------------------------------------------
 
+  // --- Checkbox "Check for updates at startup" (creato a runtime in gbLinks) ---
+  chkAutoUpdate := TCheckBox.Create(Self);
+  chkAutoUpdate.Parent  := gbLinks;
+  chkAutoUpdate.Caption := S('chk_auto_update', 'Check for updates at startup');
+  chkAutoUpdate.Checked := False;
+  chkAutoUpdate.OnClick := @chkAutoUpdateClick;
+  FAutoUpdateCheck := False;
+  // -----------------------------------------------------------------------
+
   FBridge := TZpaqBridge.Create;
   ZpaqBridge := FBridge;
   FBridge.OnComplete := @OnBridgeComplete;
@@ -1110,6 +1129,9 @@ begin
     // Tutto OK: vai direttamente al filesystem, nessun flicker sul Log
     PageControl1.ActivePage := TabAdd;
     PageControl1.OnChange := @PageControl1Change;
+    { Controllo aggiornamenti all'avvio (solo se abilitato nelle impostazioni) }
+    if FAutoUpdateCheck then
+      DoStartupUpdateCheck;
   end
   else
   begin
@@ -1836,6 +1858,9 @@ begin
     ApplyZoom(Zoom);
     LN := Ini.ReadString('Language', 'Name', 'english');
     LoadLanguage(LN);
+    FAutoUpdateCheck := Ini.ReadBool('Updates', 'CheckOnStartup', False);
+    if Assigned(chkAutoUpdate) then
+      chkAutoUpdate.Checked := FAutoUpdateCheck;
   finally
     Ini.Free;
   end;
@@ -1880,6 +1905,9 @@ begin
       end;
       Ini.WriteInteger('Zoom', 'Percent', FZoomPercent);
       Ini.WriteString('Language', 'Name', FLangName);
+      if Assigned(chkAutoUpdate) then
+        FAutoUpdateCheck := chkAutoUpdate.Checked;
+      Ini.WriteBool('Updates', 'CheckOnStartup', FAutoUpdateCheck);
     finally
       Ini.Free;
     end;
@@ -1996,7 +2024,17 @@ begin
   gbLinks.Top := CurrentY; gbLinks.Left := SetMargin; gbLinks.Width := gbFileAssoc.Width;
     btnBrowseBuild.Top := SetGap; btnBrowseBuild.Left := SetGap; btnBrowseBuild.Height := SetBtnH; btnBrowseBuild.Width := gbLinks.ClientWidth - (SetGap * 2);
     btnInternetUpdate.Top := btnBrowseBuild.Top + SetBtnH + SetGap; btnInternetUpdate.Left := SetGap; btnInternetUpdate.Height := SetBtnH; btnInternetUpdate.Width := btnBrowseBuild.Width;
-    gbLinks.ClientHeight := btnInternetUpdate.Top + SetBtnH + SetGap;
+    if Assigned(chkAutoUpdate) then
+    begin
+      chkAutoUpdate.Top    := btnInternetUpdate.Top + SetBtnH + SetGap;
+      chkAutoUpdate.Left   := SetGap;
+      chkAutoUpdate.Height := SetBtnH;
+      chkAutoUpdate.Width  := btnInternetUpdate.Width;
+      chkAutoUpdate.Font.Size := TabFontSize;
+      gbLinks.ClientHeight := chkAutoUpdate.Top + SetBtnH + SetGap;
+    end
+    else
+      gbLinks.ClientHeight := btnInternetUpdate.Top + SetBtnH + SetGap;
   CurrentY := CurrentY + gbLinks.Height + SetMargin;
 
   gbZoom.Top := CurrentY; gbZoom.Left := SetMargin; gbZoom.Width := gbFileAssoc.Width;
@@ -3383,6 +3421,128 @@ begin
   end;
 end;
 
+procedure TfrmMain.chkAutoUpdateClick(Sender: TObject);
+begin
+  FAutoUpdateCheck := chkAutoUpdate.Checked;
+  SaveSettingsToIni;
+end;
+
+{ Controlla la presenza di aggiornamenti all'avvio.
+  - Windows: se disponibile chiede conferma e scarica tutto (catpaq + zpaqfranz + dll).
+  - Non-Windows: avvisa solo con un messaggio, non scarica nulla. }
+procedure TfrmMain.DoStartupUpdateCheck;
+var
+  Checker: TUpdateChecker;
+  UpdateInfo: TUpdateInfo;
+  CurrentBuild: Integer;
+  FileVerInfo: TFileVersionInfo;
+  VerStr, Msg: string;
+  NewCatpaqPath, NewEXEPath, NewDLLPath: string;
+begin
+  { Legge la versione corrente dall'eseguibile }
+  CurrentBuild := 0;
+  FileVerInfo := TFileVersionInfo.Create(nil);
+  try
+    FileVerInfo.FileName := ParamStr(0);
+    FileVerInfo.ReadFileInfo;
+    VerStr := FileVerInfo.VersionStrings.Values['FileVersion'];
+    if VerStr <> '' then
+      CurrentBuild := StrToIntDef(
+        Copy(VerStr, LastDelimiter('.', VerStr) + 1, Length(VerStr)), 0);
+  finally
+    FileVerInfo.Free;
+  end;
+
+
+  AddLog('--- Startup update check: current build=' + IntToStr(CurrentBuild) + ' ---');
+  Application.ProcessMessages;
+
+  Checker := TUpdateChecker.Create;
+  Checker.OnLog      := @AddLog;
+  Checker.OnProgress := nil; { silenzioso all'avvio, niente barra }
+  try
+    if not Checker.CheckForUpdate(CurrentBuild, UpdateInfo) then
+    begin
+      if not UpdateInfo.Valid then
+        AddLog('Startup update check: unable to reach server (skipped)')
+      else
+        AddLog('Startup update check: already up to date');
+      Exit;
+    end;
+
+    { Aggiornamento disponibile }
+    AddLog('Startup update check: new build ' +
+      IntToStr(UpdateInfo.CatpaqInfo.BuildNumber) + ' available.');
+
+    {$IFDEF WINDOWS}
+    Msg := Format(
+      S('msg_startup_update_win',
+        'Catpaq build %d is available (you have build %d).' + LineEnding +
+        'Files to download:' + LineEnding +
+        '  catpaq.exe          %s  (%s)' + LineEnding +
+        '  zpaqfranz.exe       %s  (%s)' + LineEnding +
+        '  zpaqfranz.dll       %s  (%s)' + LineEnding + LineEnding +
+        'Update now?'),
+      [UpdateInfo.CatpaqInfo.BuildNumber, CurrentBuild,
+       FormatFileSize(UpdateInfo.CatpaqInfo.FileSize), UpdateInfo.CatpaqInfo.DateTime,
+       FormatFileSize(UpdateInfo.EXEInfo.FileSize),    UpdateInfo.EXEInfo.DateTime,
+       FormatFileSize(UpdateInfo.DLLInfo.FileSize),    UpdateInfo.DLLInfo.DateTime]);
+
+    if MessageDlg(
+         S('dlg_startup_update', 'Update Available'), Msg,
+         mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    begin
+      AddLog('Startup update check: deferred by user.');
+      Exit;
+    end;
+
+    { Procede con download + apply }
+    PageControl1.ActivePage := TabLog;
+    Application.ProcessMessages;
+
+    if not Checker.DownloadUpdate(UpdateInfo, NewCatpaqPath, NewEXEPath, NewDLLPath) then
+    begin
+      MessageDlg(
+        S('dlg_download_error', 'Download Error'),
+        S('msg_download_fail', 'Failed to download or verify update files.') +
+        sLineBreak + sLineBreak + 'Details in the Log tab.',
+        mtError, [mbOK], 0);
+      Exit;
+    end;
+
+    Application.ProcessMessages;
+    if not Checker.ApplyUpdate(NewCatpaqPath, NewEXEPath, NewDLLPath) then
+    begin
+      MessageDlg(
+        S('dlg_update_error', 'Update Error'),
+        S('msg_apply_fail', 'Failed to apply update. Please try updating manually.'),
+        mtError, [mbOK], 0);
+      Exit;
+    end;
+
+    AddLog('Startup update: applied. Restarting...');
+    Application.Terminate;
+
+    {$ELSE}
+    { Non-Windows: solo avviso, niente download }
+    Msg := Format(
+      S('msg_startup_update_nowin',
+        'Catpaq build %d is available on the developer''s site.' + LineEnding +
+        'You are currently running build %d.' + LineEnding + LineEnding +
+        'Please download the update manually from:' + LineEnding +
+        'http://www.francocorbelli.it/catpaq/'),
+      [UpdateInfo.CatpaqInfo.BuildNumber, CurrentBuild]);
+    MessageDlg(
+      S('dlg_startup_update', 'Update Available'), Msg,
+      mtInformation, [mbOK], 0);
+    AddLog('Startup update check: user notified (non-Windows platform, no auto-download).');
+    {$ENDIF}
+
+  finally
+    Checker.Free;
+  end;
+end;
+
 { === i18n helper === }
 function TfrmMain.S(const AKey, ADefault: string): string;
 var Idx: Integer;
@@ -3495,6 +3655,8 @@ begin
   gbLinks.Caption               := S('gb_links',             'Links and Updates');
   btnBrowseBuild.Caption        := S('btn_browse_build',     'Browse Catpaq builds');
   btnInternetUpdate.Caption     := S('btn_internet_update',  'Internet Update');
+  if Assigned(chkAutoUpdate) then
+    chkAutoUpdate.Caption       := S('chk_auto_update', 'Check for updates at startup');
   gbZoom.Caption                := S('gb_zoom',              'Interface Zoom');
   gbLanguage.Caption            := S('gb_language',          'Language');
 
@@ -3537,9 +3699,10 @@ begin
   // --- Archive browse popup + Test popup ------------------------------------
   itmLastversion.Caption        := S('itm_last_version',    'Last version');
   itmAll.Caption                := S('itm_all_versions',    'All versions');
-  mnuArchiveBack.Caption        := S('mnu_archive_back',    '← Back to filesystem');
-  mnuArchiveExtract1.Caption    := S('mnu_archive_extract', 'Extract...');
-  mnuArchiveExtract2.Caption    := S('mnu_archive_test',    'Test');
+  mnuArchiveBack.Caption        := S('mnu_archive_back',        '← Back to filesystem');
+  mnuArchiveExtract1.Caption    := S('mnu_archive_extract',     'Extract...');
+  mnuArchiveExtractAll.Caption  := S('mnu_archive_extract_all', 'Extract all...');
+  mnuArchiveExtract2.Caption    := S('mnu_archive_test',        'Test');
 
   if VST.Header.Columns.Count >= 5 then
   begin
@@ -3793,11 +3956,14 @@ end;
 { === PopupMenuArchiveBrowse handlers === }
 
 procedure TfrmMain.PopupMenuArchiveBrowsePopup(Sender: TObject);
+var
+  HasSel: Boolean;
 begin
-  // Per ora tutte le voci sono sempre abilitate
-  mnuArchiveExtract1.Enabled := (lvAddFiles.SelCount > 0) and
+  HasSel := (lvAddFiles.SelCount > 0) and
     ((lvAddFiles.Selected = nil) or (lvAddFiles.Selected.Caption <> '..'));
-  mnuArchiveExtract2.Enabled := mnuArchiveExtract1.Enabled;
+  mnuArchiveExtract1.Enabled    := HasSel;
+  mnuArchiveExtractAll.Enabled  := True;  // sempre disponibile
+  mnuArchiveExtract2.Enabled    := HasSel;
 end;
 
 procedure TfrmMain.mnuArchiveBackClick(Sender: TObject);
@@ -3805,42 +3971,75 @@ begin
   ExitArchiveBrowseMode;
 end;
 
+{ Extract... — passa la lista dei file selezionati.
+  Con 1 file: -to è un FILE (catpaqmode).
+  Con N file: -to deve avere N token (validato in frmExtract). }
 procedure TfrmMain.mnuArchiveExtract1Click(Sender: TObject);
 var
   Dialog: TfrmExtract;
+  SelNames: TStringList;
+  I, J: Integer;
   SelName, SelFullPath: string;
-  I: Integer;
 begin
-  { Siamo in archive browse mode: FArchiveBrowsePath = archivio corrente.
-    Se c'è un file selezionato (non "..") lo estraiamo singolarmente,
-    altrimenti estraiamo tutto. }
-  SelName := '';
-  if (lvAddFiles.SelCount = 1) and (lvAddFiles.Selected <> nil) and
-     (lvAddFiles.Selected.Caption <> '..') then
-    SelName := lvAddFiles.Selected.Caption;
+  if not FArchiveBrowseMode then Exit;
+
+  SelNames := TStringList.Create;
+  try
+    { Raccoglie tutti gli item selezionati (escluso "..") }
+    for I := 0 to lvAddFiles.Items.Count - 1 do
+    begin
+      if lvAddFiles.Items[I].Selected and (lvAddFiles.Items[I].Caption <> '..') then
+      begin
+        SelName := lvAddFiles.Items[I].Caption;
+        { Cerca il path completo nell'archivio data }
+        SelFullPath := SelName;
+        for J := 0 to High(FArchiveData.Files) do
+          if SameText(ExtractFileName(ExcludeTrailingPathDelimiter(
+               FArchiveData.Files[J].FileName)), SelName) then
+          begin
+            SelFullPath := FArchiveData.Files[J].FileName;
+            Break;
+          end;
+        SelNames.Add(SelFullPath);
+      end;
+    end;
+
+    if SelNames.Count = 0 then Exit;
+
+    Dialog := TfrmExtract.Create(Self);
+    try
+      if SelNames.Count = 1 then
+        Dialog.SetExtractionParams(FArchiveBrowsePath, SelNames[0], -1,
+                                   FPasswordKey, FPasswordFranzen)
+      else
+        Dialog.SetExtractionParamsMulti(FArchiveBrowsePath, SelNames,
+                                        FPasswordKey, FPasswordFranzen);
+      Dialog.SetDLLPath(FBridge.DLLPath);
+      Dialog.ShowModal;
+      if Dialog.GetDestPath <> '' then
+        AddLog('Archive browse extraction destination: ' + Dialog.GetDestPath);
+    finally
+      Dialog.Free;
+    end;
+  finally
+    SelNames.Free;
+  end;
+end;
+
+{ Extract all... — nessun filtro file, -to è sempre una CARTELLA }
+procedure TfrmMain.mnuArchiveExtractAllClick(Sender: TObject);
+var
+  Dialog: TfrmExtract;
+begin
+  if not FArchiveBrowseMode then Exit;
 
   Dialog := TfrmExtract.Create(Self);
   try
-    if SelName <> '' then
-    begin
-      { Cerchiamo il path completo nell'archivio data }
-      SelFullPath := SelName;
-      for I := 0 to High(FArchiveData.Files) do
-        if SameText(ExtractFileName(ExcludeTrailingPathDelimiter(
-             FArchiveData.Files[I].FileName)), SelName) then
-        begin
-          SelFullPath := FArchiveData.Files[I].FileName;
-          Break;
-        end;
-      Dialog.SetExtractionParams(FArchiveBrowsePath, SelFullPath, -1,
-                                  FPasswordKey, FPasswordFranzen);
-    end
-    else
-      Dialog.SetExtractionParamsAll(FArchiveBrowsePath, FPasswordKey, FPasswordFranzen);
+    Dialog.SetExtractionParamsAll(FArchiveBrowsePath, FPasswordKey, FPasswordFranzen);
     Dialog.SetDLLPath(FBridge.DLLPath);
     Dialog.ShowModal;
     if Dialog.GetDestPath <> '' then
-      AddLog('Archive browse extraction destination: ' + Dialog.GetDestPath);
+      AddLog('Archive browse extract-all destination: ' + Dialog.GetDestPath);
   finally
     Dialog.Free;
   end;
