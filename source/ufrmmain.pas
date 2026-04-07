@@ -7,9 +7,9 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  ComCtrls, Menus, Clipbrd, IniFiles, LCLType, LCLIntf, FileInfo, Math, dynlibs,
+  ComCtrls, Menus, Clipbrd, IniFiles, LCLType, LCLIntf, FileInfo, Process,
   {$IFDEF WINDOWS}
-  Registry, Windows, ShellApi,
+  Registry, Windows, ShellApi, dynlibs,
   {$ENDIF}
   {$IFDEF UNIX}
   BaseUnix,
@@ -32,9 +32,6 @@ const
   BASE_H_BOTTONI      = 102;
 
   // SHA256 hash atteso dell'eseguibile - AGGIORNATO AUTOMATICAMENTE da aggiorna.exe
-  // @@DLL_HASH_START@@
-  EXPECTED_DLL_HASH = '55b553c5e7e7c48ed8d329d7f931ee81800185b76c5bd76ca8c134876819f210';
-  // @@DLL_HASH_END@@
 
   // @@EXE_HASH_START@@
   EXPECTED_EXE_HASH = '4b71592f3bd17c9ddc7f8f1ad891ada0943b271ea236ebb15894bf4f33822c89';
@@ -89,6 +86,8 @@ type
     gbLanguage: TGroupBox;
     gbLinks: TGroupBox;
     gbZoom: TGroupBox;
+    Image1: TImage;
+    lblLoadingETA: TLabel;
     lblAdminStatus: TLabel;
     lblArchiveInfo: TLabel;
     lblCurrentFont: TLabel;
@@ -98,6 +97,8 @@ type
     lblLoadInfo: TLabel;
     lblZoomValue: TLabel;
     MemoLog: TMemo;
+    memArchive: TMemo;
+    pnlLoading: TPanel;
     pgrProgressLog: TProgressBar;
     itmLastversion: TMenuItem;
     itmAll: TMenuItem;
@@ -124,13 +125,16 @@ type
     pgrProgresso: TProgressBar;
     PopupMenu1: TPopupMenu;
     popTest: TPopupMenu;
+    pgrLoading: TProgressBar;
     SelectDirectoryDialog1: TSelectDirectoryDialog;
     TabArchive: TTabSheet;
     TabLog: TTabSheet;
     TabSettings: TTabSheet;
     TabAdd: TTabSheet;
+    tbInfo: TTabSheet;
     tbZoom: TTrackBar;
     TimerUpdate: TTimer;
+    btnAbortLoading: TToggleBox;
     TrackBar1: TTrackBar;
     VST: TLazVirtualStringTree;
 
@@ -138,7 +142,7 @@ type
     pnlAddToolbar: TPanel;
     pnlAddFilter: TPanel;
     pnlAddNav: TPanel;
-    lvAddFiles: TListView;
+    lvAddFiles: TLazVirtualStringTree;
     btnAddAdd: TButton;
     btnAddExtract: TButton;
     btnAddTest: TButton;
@@ -153,6 +157,7 @@ type
     mnuAddFilesToZpaq: TMenuItem;
     mnuAddAllToZpaq: TMenuItem;
     mnuAddExtractToFolder: TMenuItem;
+    mnuAddBrowseVersions: TMenuItem;
     mnuAddTestZpaq: TMenuItem;
     mnuAddTestAllZpaq: TMenuItem;
     mnuAddSep1b: TMenuItem;
@@ -196,8 +201,8 @@ type
     mnuArchiveSep2: TMenuItem;
     mnuArchiveExtract2: TMenuItem;   // Test
 
+    procedure btnAbortLoadingClick(Sender: TObject);
     procedure btnExit2Click(Sender: TObject);
-    procedure btnHelp1Click(Sender: TObject);
     procedure btnHelpClick(Sender: TObject);
     procedure btnOpenClick(Sender: TObject);
     procedure btnTimeMachineClick(Sender: TObject);
@@ -212,6 +217,7 @@ type
     procedure FormDestroy(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure FormResize(Sender: TObject);
+    procedure Image1Click(Sender: TObject);
     procedure OnTimerSave(Sender: TObject);
     procedure OnTimerRestore(Sender: TObject);
     procedure itmAllClick(Sender: TObject);
@@ -269,18 +275,25 @@ type
     procedure btnAddRefreshClick(Sender: TObject);
     procedure cmbAddDrivesChange(Sender: TObject);
     procedure lvAddFilesDblClick(Sender: TObject);
-    procedure lvAddFilesColumnClick(Sender: TObject; Column: TListColumn);
     procedure lvAddFilesKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure lvAddFilesMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
-    procedure lvAddFilesAdvancedCustomDrawItem(Sender: TCustomListView;
-      Item: TListItem; State: TCustomDrawState; Stage: TCustomDrawStage;
-      var DefaultDraw: Boolean);
-    procedure lvAddFilesSelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
+    // VST handlers for lvAddFiles (replaces TListView handlers)
+    procedure lvAddFilesGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
+      Column: TColumnIndex; TextType: TVSTTextType; var CellText: String);
+    procedure lvAddFilesInitNode(Sender: TBaseVirtualTree; ParentNode,
+      Node: PVirtualNode; var InitialStates: TVirtualNodeInitStates);
+    procedure lvAddFilesPaintText(Sender: TBaseVirtualTree;
+      const TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+      TextType: TVSTTextType);
+    procedure lvAddFilesHeaderClick(Sender: TVTHeader; HitInfo: TVTHeaderHitInfo);
+    procedure lvAddFilesFocusChanged(Sender: TBaseVirtualTree; Node: PVirtualNode;
+      Column: TColumnIndex);
     procedure PopupMenuAddPopup(Sender: TObject);
     procedure mnuAddFilesToZpaqClick(Sender: TObject);
     procedure mnuAddAllToZpaqClick(Sender: TObject);
     procedure mnuAddExtractToFolderClick(Sender: TObject);
+    procedure mnuAddBrowseVersionsClick(Sender: TObject);
     procedure mnuAddTestZpaqClick(Sender: TObject);
     procedure mnuAddTestAllZpaqClick(Sender: TObject);
     procedure mnuAddOpenClick(Sender: TObject);
@@ -350,7 +363,10 @@ type
     FTestProgressLineIndex: Integer; // index of the in-place progress line in MemoLog (-1 = not yet added)
     FLoadingArchive: Boolean; // True = caricamento archivio in corso → ignora ulteriori doppi click
     FLogProgressLineIndex: Integer; // index of the in-place Scan progress line in MemoLog (-1 = not yet added)
-    FDLLAbortRequested: Boolean; // True = utente ha premuto Abort durante listing DLL sincrono
+    FFileListAbortRequested: Boolean; // True = utente ha premuto Abort durante listing file temporaneo
+    FTempListFile: string; // Path del file temporaneo generato dal listing
+    FKeepTempFiles: Boolean; // True = non cancellare i file temporanei (debug)
+    FLoadFromBrowseTab: Boolean; // True = caricamento avviato dalla tab Browse (mostra pnlLoading)
 
     // --- Pannello Abort nella TabLog (creato a runtime) ---
     pnlLogToolbar: TPanel;
@@ -358,12 +374,15 @@ type
     lblLogStatus:  TLabel;
 
     // --- Componenti generati a runtime per evitare EReadError ---
-    pmLog: TPopupMenu;
+    pmLog: TPopupMenu;       // Popup per MemoLog (dati sistema)
     mnuSaveLog: TMenuItem;
     mnuLogBack: TMenuItem;
     mnuLogClear: TMenuItem;
+    pmArchive: TPopupMenu;   // Popup per memArchive (dati archivio)
+    mnuSaveArchive: TMenuItem;
+    mnuArchiveLogBack: TMenuItem;
+    mnuClearArchive: TMenuItem;
     SaveDialogLog: TSaveDialog;
-
     mnuHashSep: TMenuItem;
     mnuHashSSD: TMenuItem;
 
@@ -387,13 +406,17 @@ type
     procedure mnuSaveLogClick(Sender: TObject);
     procedure mnuLogBackClick(Sender: TObject);
     procedure mnuLogClearClick(Sender: TObject);
+    procedure mnuSaveArchiveClick(Sender: TObject);
+    procedure mnuArchiveLogBackClick(Sender: TObject);
+    procedure mnuClearArchiveClick(Sender: TObject);
     procedure MemoLogKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure btnAbortLoadClick(Sender: TObject);
     procedure SetLoadingState(ALoading: Boolean);
-    procedure OnDLLListComplete(Data: PtrInt);
-    procedure DLLGuiUpdate(Data: PtrInt);
+    procedure OnFileListComplete(Data: PtrInt);
+    procedure FileListGuiUpdate(Data: PtrInt);
     procedure DoLoadArchive(const AFileName: string);
     procedure ShowArchiveBrowse(const AArchivePath: string; const AData: TArchiveData);
+    procedure AddArchiveLog(const AMsg: string);  { scrive nel memArchive }
     procedure ExitArchiveBrowseMode;
     procedure AskPasswords;
     procedure RunPakkaList;
@@ -434,9 +457,8 @@ type
     function IsZpaqFile(const AFileName: string): Boolean;
     procedure UpdateZpaqButtons;
     function GetSelectedZpaqPath: string;
-    function TryDownloadDLL: Boolean;
+    function TryDownloadExternal: Boolean;
     function ExecuteStartupChecks: Boolean; // True = OK, False = errore/avviso
-    function ValidateDLL: Boolean;
     function ValidateEXE: Boolean;
     function ValidateXP: Boolean;
     procedure SortLvAddFiles(AColumn: Integer; AAscending: Boolean);
@@ -470,162 +492,306 @@ var
 implementation
 
 {$R *.lfm}
-         { === DEFINIZIONI C/C++ PER LISTING VELOCE TRAMITE DLL === }
+{ === LISTING TRAMITE FILE TEMPORANEO SU DISCO (via -out di zpaqfranz) ===
+  zpaqfranz scrive i dati direttamente sul file temporaneo tramite -out.
+  Le righe di progresso vanno su stderr (il pipe), il thread le intercetta.
+  Metodo predefinito su tutte le piattaforme. }
 
-{ === DEFINIZIONI C/C++ PER LISTING VELOCE TRAMITE DLL === }
+{ Helper per dimensione file senza dipendenze extra }
+function FileSizeByName(const AFileName: string): Int64;
+var SR: TSearchRec;
+begin
+  Result := 0;
+  if FindFirst(AFileName, faAnyFile, SR) = 0 then
+  begin Result := SR.Size; SysUtils.FindClose(SR); end;
+end;
+
+{ === Helper: restituisce l'indice in FAddFilesList del nodo focused, o -1 === }
+function LvGetFocusedIndex(ATree: TLazVirtualStringTree): Integer;
+var N: PVirtualNode;
+begin
+  Result := -1;
+  N := ATree.FocusedNode;
+  if N = nil then Exit;
+  Result := N^.Index;
+end;
+
+{ === Helper: restituisce il Name dell'item focused, o '' === }
+function LvGetFocusedName(ATree: TLazVirtualStringTree; const AList: array of TFileExplorerItem): string;
+var Idx: Integer;
+begin
+  Result := '';
+  Idx := LvGetFocusedIndex(ATree);
+  if (Idx >= 0) and (Idx < Length(AList)) then
+    Result := AList[Idx].Name;
+end;
+
+{ === Helper: conta i nodi selezionati === }
+function LvSelectedCount(ATree: TLazVirtualStringTree): Integer;
+var N: PVirtualNode;
+begin
+  Result := 0;
+  N := ATree.GetFirstSelected;
+  while N <> nil do
+  begin
+    Inc(Result);
+    N := ATree.GetNextSelected(N);
+  end;
+end;
 
 type
-  TOutputCallback = procedure(line: PAnsiChar); cdecl;
-  TZpaqRunCommand = function(lpCmdLine: PAnsiChar): Integer; cdecl;
-  TZpaqResetProc  = procedure; cdecl;
-
-{ Thread che esegue ZpaqRun in background, liberando il thread principale
-  per gestire la UI (progress bar, bottone ABORT, ecc.). }
-type
-  TDLLListThread = class(TThread)
+  { Thread che esegue zpaqfranz con -out in background, leggendo stderr
+    per le righe di progresso e notificando la GUI in tempo reale. }
+  TFileListThread = class(TThread)
   private
-    FCommand:   AnsiString;
-    FZpaqRun:   TZpaqRunCommand;
-    FZpaqReset: TZpaqResetProc;
+    FBridge:     TZpaqBridge;
+    FCommand:    string;
+    FTempFile:   string;
+    FSuccess:    Boolean;
+    FExitCode:   Integer;
+    FStderrLog:  TStringList;   { accumula le righe stderr per il log }
   protected
     procedure Execute; override;
   public
-    constructor Create(const ACommand: AnsiString;
-                       AZpaqRun:   TZpaqRunCommand;
-                       AZpaqReset: TZpaqResetProc);
-    {$IFDEF WINDOWS}function ThreadHandle: THandle;{$ENDIF}
+    constructor Create(ABridge: TZpaqBridge; const ACommand, ATempFile: string);
+    destructor Destroy; override;
+    property TempFile:  string      read FTempFile;
+    property Success:   Boolean     read FSuccess;
+    property ExitCode:  Integer     read FExitCode;
+    property StderrLog: TStringList read FStderrLog;
   end;
 
 var
-  FastDLLBuffer:   TStringList = nil;
-  FastDLLPending:  string = '';
-  FastDLLThread:   TDLLListThread = nil;
-  FastDLLhDLL:     TLibHandle = NilHandle;
-  FastDLLDone:     Boolean = False;   // settato dal thread quando ha finito
+  FileListThread: TFileListThread = nil;
 
-{ === DEBUG: file di log grezzo per FastDLLOutputCallback === }
+{ === DEBUG: file di log per il listing via file temporaneo === }
 var
-  FastDLLDbgFile: string = '';
+  FileListDbgFile: string = '';
 
-procedure FastDLLDbgWrite(const ALine: string);
+procedure FileListDbgWrite(const ALine: string);
 var F: TextFile;
 begin
-  if not DebugMode then Exit;
-  if FastDLLDbgFile = '' then
-    FastDLLDbgFile := ExtractFilePath(ParamStr(0)) + 'catpaq_dll_debug.txt';
-  AssignFile(F, FastDLLDbgFile);
+  { Scrive SEMPRE, non solo in DebugMode — è debug temporaneo }
+  if FileListDbgFile = '' then
+    FileListDbgFile := IncludeTrailingPathDelimiter(GetTempDir(False)) +
+                        'catpaq_filelist_debug.txt';
+  AssignFile(F, FileListDbgFile);
   {$I-}
-  if FileExists(FastDLLDbgFile) then Append(F) else Rewrite(F);
-  if IOResult = 0 then begin Writeln(F, ALine); Flush(F); CloseFile(F); end;
+  if FileExists(FileListDbgFile) then Append(F) else Rewrite(F);
+  if IOResult = 0 then begin Writeln(F, FormatDateTime('hh:nn:ss.zzz', Now) + ' ' + ALine); Flush(F); CloseFile(F); end;
   {$I+}
 end;
 { === FINE HELPERS DEBUG === }
 
-{ === TDLLListThread === }
+{ === TFileListThread === }
 
-constructor TDLLListThread.Create(const ACommand: AnsiString;
-                                   AZpaqRun:   TZpaqRunCommand;
-                                   AZpaqReset: TZpaqResetProc);
+constructor TFileListThread.Create(ABridge: TZpaqBridge; const ACommand, ATempFile: string);
 begin
   inherited Create(True); // CreateSuspended
-  FCommand   := ACommand;
-  FZpaqRun   := AZpaqRun;
-  FZpaqReset := AZpaqReset;
+  FBridge     := ABridge;
+  FCommand    := ACommand;
+  FTempFile   := ATempFile;
+  FSuccess    := False;
+  FExitCode   := -1;
+  FStderrLog  := TStringList.Create;
   FreeOnTerminate := False;
 end;
 
-procedure TDLLListThread.Execute;
+destructor TFileListThread.Destroy;
 begin
-  try
-    FZpaqRun(PAnsiChar(FCommand));
-  finally
-    if Assigned(FZpaqReset) then FZpaqReset;
-    FastDLLDone := True;
-    Application.QueueAsyncCall(@frmMain.OnDLLListComplete, 0);
-  end;
+  FreeAndNil(FStderrLog);
+  inherited;
 end;
 
-{$IFDEF WINDOWS}
-function TDLLListThread.ThreadHandle: THandle;
-begin
-  Result := Handle;
-end;
-{$ENDIF}
-
-{ === FastDLL callback — chiamata dal TDLLListThread, NON dal thread principale.
-  Non tocca direttamente i controlli GUI: usa QueueAsyncCall per il progresso
-  e variabili globali protette per i dati. === }
-
+procedure TFileListThread.Execute;
+const
+  BufSize = 4096;
 var
-  FastDLLLastPercent: Integer = -1; // ultimo % inviato alla GUI (evita spam)
-
-procedure FastDLLOutputCallback(line: PAnsiChar); cdecl;
-var
-  P, StartP: PChar;
+  Proc: TProcess;
+  Buffer: array[0..BufSize - 1] of Byte;
+  BytesRead, I: Integer;
+  LineAccum: string;
+  Ch: Char;
   S, PercStr: string;
-  Percent, ExpectedLines: Integer;
+  Percent, LastPercent, WPos: Integer;
+  SPKParts: TStringArray;
 begin
-  if not Assigned(FastDLLBuffer) then Exit;
+  FileListDbgWrite('TFileListThread.Execute: START');
+  FileListDbgWrite('  Command=' + FCommand);
+  FileListDbgWrite('  TempFile=' + FTempFile);
+  FileListDbgWrite('  ExePath=' + FBridge.ExternalPath);
 
-  P := line;
-  StartP := P;
-  while P^ <> #0 do
-  begin
-    if P^ = #10 then
-    begin
-      SetString(S, StartP, P - StartP);
-      if (Length(S) > 0) and (S[Length(S)] = #13) then
-        SetLength(S, Length(S) - 1);
+  LastPercent := -1;
 
-      S := FastDLLPending + S;
-      FastDLLPending := '';
-      StartP := P + 1;
+  Proc := TProcess.Create(nil);
+  try
+    Proc.Executable := FBridge.ExternalPath;
 
-      FastDLLDbgWrite(FormatDateTime('hh:nn:ss.zzz', Now) + ' [' + S + ']');
+    { Costruisci la command line: comando originale + -out tempfile }
+    {$IFDEF WINDOWS}
+    Proc.Parameters.AddText(FCommand + ' -out "' + FTempFile + '"');
+    Proc.Options := [poUsePipes, poNoConsole, poStderrToOutPut];
+    {$ELSE}
+    SplitCmdToParams(FCommand + ' -out "' + FTempFile + '"', Proc.Parameters);
+    Proc.Options := [poUsePipes, poStderrToOutPut];
+    {$ENDIF}
 
-      // INTERCETTA LA TELEMETRIA NATIVA DI ZPAQFRANZ
-      if Pos('$$$NULL-W', S) = 1 then
-      begin
-        PercStr := Trim(Copy(S, 11, 3));
-        Percent := StrToIntDef(PercStr, 0);
+    FileListDbgWrite('  Full command line: ' + FCommand + ' -out "' + FTempFile + '"');
 
-        FastDLLDbgWrite('  --> $$$NULL-W riconosciuto, PercStr="' + PercStr + '" Percent=' + IntToStr(Percent));
+    try
+      Proc.Execute;
+      FileListDbgWrite('  Process started. PID=' + IntToStr(Proc.ProcessID));
 
-        // Aggiorna la GUI nel thread principale (thread-safe)
-        if Percent <> FastDLLLastPercent then
-        begin
-          FastDLLLastPercent := Percent;
-          Application.QueueAsyncCall(@frmMain.DLLGuiUpdate, PtrInt(Percent));
+      { Legge stderr (che arriva via il pipe stdout+stderr merged).
+        zpaqfranz con -out scrive i dati nel file e il progresso sul pipe.
+        Intercettiamo le righe "W NNN%" per aggiornare la progress bar.
+        Tutte le righe vengono accumulate in FStderrLog per il log. }
+      LineAccum := '';
+
+      repeat
+        if Terminated then Break;
+
+        BytesRead := 0;
+        try
+          if Proc.Output.NumBytesAvailable > 0 then
+            BytesRead := Proc.Output.Read(Buffer, BufSize)
+          else if Proc.Running then
+            Sleep(10)
+          else
+          begin
+            { Processo terminato: svuota gli ultimi byte rimasti nel pipe }
+            BytesRead := Proc.Output.Read(Buffer, BufSize);
+            if BytesRead <= 0 then Break;
+          end;
+        except
+          Break;
         end;
 
-        // Controlla abort: se richiesto svuota il buffer così il parsing
-        // restituirà 0 file e OnDLLListComplete gestirà l'abort
-        if frmMain.FDLLAbortRequested then
+        { Processa byte per byte per estrarre le righe }
+        for I := 0 to BytesRead - 1 do
         begin
-          FastDLLBuffer.Clear;
-          Exit;
+          Ch := Char(Buffer[I]);
+          if Ch = #10 then
+          begin
+            { Strip trailing CR }
+            if (Length(LineAccum) > 0) and (LineAccum[Length(LineAccum)] = #13) then
+              SetLength(LineAccum, Length(LineAccum) - 1);
+
+            S := LineAccum;
+            LineAccum := '';
+
+            if S = '' then Continue;
+
+            FileListDbgWrite('  PIPE: [' + S + ']');
+
+            { Accumula per il log della GUI (ma NON le righe @SPK@ di telemetria) }
+            if Pos('@SPK@', S) <> 1 then
+              FStderrLog.Add(S);
+
+            { === Intercetta telemetria @SPK@DEC@ (fase decompressione/scansione) ===
+              Formato: @SPK@DEC@percentuale@lavorati@totali@eta
+              Esempio: @SPK@DEC@42@3242754984@7649478326@1
+              Emesso durante la lettura dell'archivio, prima della fase di output W. }
+            if Pos('@SPK@DEC@', S) = 1 then
+            begin
+              SPKParts := S.Split(['@']);
+              { Parts: [0]='' [1]='' [2]='' [3]=perc [4]=lavorati [5]=totali [6]=eta }
+              if Length(SPKParts) >= 4 then
+              begin
+                Percent := StrToIntDef(Trim(SPKParts[3]), -1);
+                if (Percent >= 0) and (Percent <> LastPercent) then
+                begin
+                  LastPercent := Percent;
+                  FileListDbgWrite('  --> @SPK@DEC@ Progress: ' + IntToStr(Percent) + '%');
+                  Application.QueueAsyncCall(@frmMain.FileListGuiUpdate, PtrInt(Percent));
+                end;
+              end;
+            end
+            else
+            { === Intercetta righe di progresso W (fase di scrittura output) ===
+              Formato reale dal pipe: "DD/MM/YYYY HH:NN:SS W NNN% NNNNNNNN/NNNNNNNN"
+              Esempio: "07/04/2026 10:03:45 W 010% 00096257/00962563" }
+            begin
+              WPos := Pos(' W ', S);
+              if (WPos > 0) and (Length(S) >= WPos + 6) and (S[WPos + 5] = '%') then
+              begin
+                PercStr := Trim(Copy(S, WPos + 3, 3));
+                Percent := StrToIntDef(PercStr, -1);
+                if (Percent >= 0) and (Percent <> LastPercent) then
+                begin
+                  LastPercent := Percent;
+                  FileListDbgWrite('  --> W Progress: ' + IntToStr(Percent) + '%');
+                  Application.QueueAsyncCall(@frmMain.FileListGuiUpdate, PtrInt(Percent));
+                end;
+              end;
+            end;
+
+            { Intercetta anche la riga "OUTPUT..." che dà info su versioni e file }
+            if Pos('OUTPUT...', S) > 0 then
+              FileListDbgWrite('  --> OUTPUT info: ' + S);
+
+            { Intercetta la riga "Output NNN bytes / NNN lines in NNN s" }
+            if Pos('Output ', S) > 0 then
+              FileListDbgWrite('  --> Output summary: ' + S);
+          end
+          else if Ch <> #13 then
+            LineAccum := LineAccum + Ch;
+        end;
+      until False;
+
+      { Ultima riga senza newline }
+      if LineAccum <> '' then
+      begin
+        FStderrLog.Add(LineAccum);
+        FileListDbgWrite('  PIPE (last): [' + LineAccum + ']');
+      end;
+
+      { Se abort richiesto, termina forzatamente il processo }
+      if Terminated and Proc.Running then
+      begin
+        FileListDbgWrite('  Thread terminated: killing process...');
+        Proc.Terminate(1);
+      end;
+
+      { Attendi la fine del processo (max 3 secondi se abort) }
+      if Terminated then
+      begin
+        I := 0;
+        while Proc.Running and (I < 300) do begin Sleep(10); Inc(I); end;
+        if Proc.Running then
+        begin
+          FileListDbgWrite('  Wait timeout: force-killing process');
+          Proc.Terminate(1);
         end;
       end
       else
+        while Proc.Running do Sleep(5);
+      FExitCode := Proc.ExitStatus;
+
+      FileListDbgWrite('  Process finished. ExitCode=' + IntToStr(FExitCode));
+      FSuccess := True;
+
+    except
+      on E: Exception do
       begin
-        // ALLOCAZIONE DINAMICA DELLA RAM
-        if (Length(S) > 0) and (S[1] = '+') then
-        begin
-          ExpectedLines := StrToIntDef(Copy(S, 2, Length(S)), 0);
-          if ExpectedLines > 0 then
-            FastDLLBuffer.Capacity := ExpectedLines + 100;
-        end;
-        FastDLLBuffer.Add(S);
+        FileListDbgWrite('  EXCEPTION: ' + E.ClassName + ': ' + E.Message);
+        FSuccess := False;
       end;
     end;
-    Inc(P);
+
+  finally
+    Proc.Free;
   end;
 
-  if StartP < P then
+  { Verifica file output }
+  FileListDbgWrite('  TempFile exists=' + BoolToStr(FileExists(FTempFile), 'YES', 'NO'));
+  if FileExists(FTempFile) then
   begin
-    SetString(S, StartP, P - StartP);
-    FastDLLPending := FastDLLPending + S;
+    FileListDbgWrite('  TempFile size=' + IntToStr(FileSizeByName(FTempFile)) + ' bytes');
   end;
+
+  FileListDbgWrite('TFileListThread.Execute: END — notifying main thread');
+  Application.QueueAsyncCall(@frmMain.OnFileListComplete, 0);
 end;
 
 { === Helpers === }
@@ -727,8 +893,10 @@ begin
   FArchiveBrowseMode := False;
   FLoadingArchive := False;
   FLogProgressLineIndex := -1;
-  FDLLAbortRequested := False;
+  FFileListAbortRequested := False;
+  FTempListFile := '';
   FArchiveBrowsePath := '';
+  FLoadFromBrowseTab := False;
   FLvSortColumn := -1;
   FLvSortAscending := True;
   FVstSortColumn := -1;
@@ -766,7 +934,7 @@ begin
   // --- CREAZIONE DINAMICA COMPONENTI HASHING/LOG (Previene EReadError) ---
   pmLog := TPopupMenu.Create(Self);
   mnuSaveLog := TMenuItem.Create(pmLog);
-  mnuSaveLog.Caption := 'Save log to file...';
+  mnuSaveLog.Caption := 'Save system log to file...';
   mnuSaveLog.OnClick := @mnuSaveLogClick;
   pmLog.Items.Add(mnuSaveLog);
   mnuLogSep := TMenuItem.Create(pmLog);
@@ -777,11 +945,31 @@ begin
   mnuLogBack.OnClick := @mnuLogBackClick;
   pmLog.Items.Add(mnuLogBack);
   mnuLogClear := TMenuItem.Create(pmLog);
-  mnuLogClear.Caption := 'Clear log';
+  mnuLogClear.Caption := 'Clear system log';
   mnuLogClear.OnClick := @mnuLogClearClick;
   pmLog.Items.Add(mnuLogClear);
   MemoLog.PopupMenu := pmLog;
   MemoLog.OnKeyDown := @MemoLogKeyDown;
+
+  // --- Popup per memArchive (dati archivio) ---
+  pmArchive := TPopupMenu.Create(Self);
+  mnuSaveArchive := TMenuItem.Create(pmArchive);
+  mnuSaveArchive.Caption := 'Save archive log to file...';
+  mnuSaveArchive.OnClick := @mnuSaveArchiveClick;
+  pmArchive.Items.Add(mnuSaveArchive);
+  mnuLogSep := TMenuItem.Create(pmArchive);
+  mnuLogSep.Caption := '-';
+  pmArchive.Items.Add(mnuLogSep);
+  mnuArchiveLogBack := TMenuItem.Create(pmArchive);
+  mnuArchiveLogBack.Caption := '<= Back to Browse';
+  mnuArchiveLogBack.OnClick := @mnuArchiveLogBackClick;
+  pmArchive.Items.Add(mnuArchiveLogBack);
+  mnuClearArchive := TMenuItem.Create(pmArchive);
+  mnuClearArchive.Caption := 'Clear archive log';
+  mnuClearArchive.OnClick := @mnuClearArchiveClick;
+  pmArchive.Items.Add(mnuClearArchive);
+  memArchive.PopupMenu := pmArchive;
+  memArchive.OnKeyDown := @MemoLogKeyDown;
 
   // --- Pannello Abort nella TabLog (nascosto finché non carica) ---
   pnlLogToolbar := TPanel.Create(Self);
@@ -837,6 +1025,7 @@ begin
   chkAutoUpdate.OnClick := @chkAutoUpdateClick;
   FAutoUpdateCheck := False;
   // -----------------------------------------------------------------------
+
 
   FBridge := TZpaqBridge.Create;
   ZpaqBridge := FBridge;
@@ -897,6 +1086,9 @@ begin
 
   InitAddTab;
 
+  // pnlLoading è nel form (tab Browse): nascosto all'avvio, mostrato solo durante caricamento
+  pnlLoading.Visible := False;
+
   TabAdd.PageIndex := 0;
   TabArchive.PageIndex := 1;
   TabLog.PageIndex := 2;
@@ -911,6 +1103,12 @@ end;
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
   SaveSettingsToIni;
+  // Cleanup del thread file listing se ancora in esecuzione
+  if Assigned(FileListThread) then
+  begin
+    FileListThread.WaitFor;
+    FreeAndNil(FileListThread);
+  end;
   ZpaqBridge := nil;
   FreeAndNil(FBridge);
   FreeAndNil(FHiddenPaths);
@@ -937,6 +1135,11 @@ begin
   // Nessun debounce: il polling di FTimerSave rileverà il cambiamento al prossimo tick
 end;
 
+procedure TfrmMain.Image1Click(Sender: TObject);
+begin
+
+end;
+
 procedure TfrmMain.OnTimerRestore(Sender: TObject);
 var
   Wd, Ht, L, T, I: Integer;
@@ -952,14 +1155,14 @@ begin
     Top    := Screen.WorkAreaTop  + (Screen.WorkAreaHeight - Height) div 2;
     AddLog('OnTimerRestore: applico dimensione default → L=' + IntToStr(Left) +
            ' T=' + IntToStr(Top) + ' W=' + IntToStr(Width) + ' H=' + IntToStr(Height));
-    if lvAddFiles.Columns.Count >= 6 then
+    if lvAddFiles.Header.Columns.Count >= 6 then
     begin
-      lvAddFiles.Columns[0].Width := lvAddFiles.ClientWidth * 40 div 100;
-      lvAddFiles.Columns[1].Width := lvAddFiles.ClientWidth * 12 div 100;
-      lvAddFiles.Columns[2].Width := lvAddFiles.ClientWidth * 18 div 100;
-      lvAddFiles.Columns[3].Width := lvAddFiles.ClientWidth * 18 div 100;
-      lvAddFiles.Columns[4].Width := lvAddFiles.ClientWidth *  6 div 100;
-      lvAddFiles.Columns[5].Width := lvAddFiles.ClientWidth *  6 div 100;
+      lvAddFiles.Header.Columns[0].Width := lvAddFiles.Width * 40 div 100;
+      lvAddFiles.Header.Columns[1].Width := lvAddFiles.Width * 12 div 100;
+      lvAddFiles.Header.Columns[2].Width := lvAddFiles.Width * 18 div 100;
+      lvAddFiles.Header.Columns[3].Width := lvAddFiles.Width * 18 div 100;
+      lvAddFiles.Header.Columns[4].Width := lvAddFiles.Width *  6 div 100;
+      lvAddFiles.Header.Columns[5].Width := lvAddFiles.Width *  6 div 100;
     end;
     AddLog('OnTimerRestore: applico dimensione lista (proporzionale)');
     AddLog('Settings: first run, default layout applied.');
@@ -987,13 +1190,13 @@ begin
     // Riapplica le larghezze colonne DOPO SetBounds usando i per-mille salvati:
     // converte per-mille → pixel con la ClientWidth attuale (post-resize)
     AddLog('OnTimerRestore: riapplico larghezze colonne lista (ClientWidth=' +
-           IntToStr(lvAddFiles.ClientWidth) + ')');
-    for I := 0 to Min(High(FSavedColWidthsLv), lvAddFiles.Columns.Count - 1) do
+           IntToStr(lvAddFiles.Width) + ')');
+    for I := 0 to Min(High(FSavedColWidthsLv), lvAddFiles.Header.Columns.Count - 1) do
       if FSavedColWidthsLv[I] > 0 then
       begin
-        lvAddFiles.Columns[I].Width := FSavedColWidthsLv[I] * lvAddFiles.ClientWidth div 1000;
+        lvAddFiles.Header.Columns[I].Width := FSavedColWidthsLv[I] * lvAddFiles.Width div 1000;
         AddLog('  lista col[' + IntToStr(I) + '] ' + IntToStr(FSavedColWidthsLv[I]) +
-               'o/oo → ' + IntToStr(lvAddFiles.Columns[I].Width) + 'px');
+               'o/oo → ' + IntToStr(lvAddFiles.Header.Columns[I].Width) + 'px');
       end;
     AddLog('OnTimerRestore: riapplico larghezze colonne VST');
     for I := 0 to Min(High(FSavedColWidthsVst), VST.Header.Columns.Count - 1) do
@@ -1008,15 +1211,15 @@ begin
   FLastSavedTop    := Top;
   FLastSavedWidth  := Width;
   FLastSavedHeight := Height;
-  for I := 0 to Min(High(FLastColWidthsLv),  lvAddFiles.Columns.Count - 1) do
-    FLastColWidthsLv[I]  := lvAddFiles.Columns[I].Width;
+  for I := 0 to Min(High(FLastColWidthsLv),  lvAddFiles.Header.Columns.Count - 1) do
+    FLastColWidthsLv[I]  := lvAddFiles.Header.Columns[I].Width;
   for I := 0 to Min(High(FLastColWidthsVst), VST.Header.Columns.Count - 1) do
     FLastColWidthsVst[I] := VST.Header.Columns[I].Width;
 
   AddLog('OnTimerRestore: snapshot iniziale L=' + IntToStr(Left) +
          ' T=' + IntToStr(Top) + ' W=' + IntToStr(Width) + ' H=' + IntToStr(Height));
-  for I := 0 to lvAddFiles.Columns.Count - 1 do
-    AddLog('  lista col[' + IntToStr(I) + ']=' + IntToStr(lvAddFiles.Columns[I].Width));
+  for I := 0 to lvAddFiles.Header.Columns.Count - 1 do
+    AddLog('  lista col[' + IntToStr(I) + ']=' + IntToStr(lvAddFiles.Header.Columns[I].Width));
 
   if not Visible then
   begin
@@ -1045,8 +1248,8 @@ begin
 
   // Larghezze colonne lvAddFiles
   if not NeedSave then
-    for I := 0 to Min(High(FLastColWidthsLv), lvAddFiles.Columns.Count - 1) do
-      if lvAddFiles.Columns[I].Width <> FLastColWidthsLv[I] then
+    for I := 0 to Min(High(FLastColWidthsLv), lvAddFiles.Header.Columns.Count - 1) do
+      if lvAddFiles.Header.Columns[I].Width <> FLastColWidthsLv[I] then
       begin
         NeedSave := True;
         Break;
@@ -1068,8 +1271,8 @@ begin
     FLastSavedTop    := Top;
     FLastSavedWidth  := Width;
     FLastSavedHeight := Height;
-    for I := 0 to Min(High(FLastColWidthsLv),  lvAddFiles.Columns.Count - 1) do
-      FLastColWidthsLv[I]  := lvAddFiles.Columns[I].Width;
+    for I := 0 to Min(High(FLastColWidthsLv),  lvAddFiles.Header.Columns.Count - 1) do
+      FLastColWidthsLv[I]  := lvAddFiles.Header.Columns[I].Width;
     for I := 0 to Min(High(FLastColWidthsVst), VST.Header.Columns.Count - 1) do
       FLastColWidthsVst[I] := VST.Header.Columns[I].Width;
 
@@ -1107,6 +1310,32 @@ begin
   end;
 end;
 
+procedure TfrmMain.mnuSaveArchiveClick(Sender: TObject);
+begin
+  if SaveDialogLog.Execute then
+  begin
+    memArchive.Lines.SaveToFile(SaveDialogLog.FileName);
+    ShowMessage('Archive log saved successfully to:'#13#10 + SaveDialogLog.FileName);
+  end;
+end;
+
+procedure TfrmMain.mnuArchiveLogBackClick(Sender: TObject);
+begin
+  PageControl1.ActivePage := TabAdd;
+end;
+
+procedure TfrmMain.mnuClearArchiveClick(Sender: TObject);
+begin
+  memArchive.Clear;
+end;
+
+procedure TfrmMain.AddArchiveLog(const AMsg: string);
+begin
+  memArchive.Lines.Add(FormatDateTime('hh:nn:ss', Now) + ' ' + AMsg);
+  memArchive.SelStart := Length(memArchive.Text);
+end;
+
+
 procedure TfrmMain.OnTimerStartup(Sender: TObject);
 var
   StartupOK: Boolean;
@@ -1118,7 +1347,8 @@ begin
 
   if FCommandLineFile <> '' then
   begin
-    // Avviato con file da riga di comando → vai direttamente all'archivio
+    // Avviato con file da riga di comando → vai direttamente all'archivio (tutte le versioni)
+    FArchiveBrowsePath := '';  { vuoto → BuildCommandString aggiunge -all }
     PageControl1.ActivePage := TabArchive;
     PageControl1.OnChange := @PageControl1Change;
     DoLoadArchive(FCommandLineFile);
@@ -1145,10 +1375,6 @@ function TfrmMain.ExecuteStartupChecks: Boolean;
 var
   ExeFound: Boolean;
   ExePath: string;
-  {$IFDEF WINDOWS}
-  DllFound: Boolean;
-  DllPath: string;
-  {$ENDIF}
 begin
   Result := False; // pessimistico: True solo se tutto OK alla fine
 
@@ -1162,18 +1388,14 @@ begin
   // --- Determina i path attesi (platform-specific) ---
   {$IFDEF WINDOWS}
   {$IFDEF CPU32}
-  // 32-bit: usa zpaqfranzxp.exe direttamente, niente DLL
+  // 32-bit: usa zpaqfranzxp.exe direttamente
   ExePath  := ExtractFilePath(ParamStr(0)) + 'zpaqfranzxp.exe';
-  DllFound := False; // non usata in modalità 32-bit
-  DllPath  := '';
   {$ELSE}
-  // 64-bit: usa zpaqfranz.exe + zpaqfranz.dll
+  // 64-bit: usa zpaqfranz.exe
   ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.exe';
-  DllPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
-  DllFound := False;
   {$ENDIF}
   {$ELSE}
-  // macOS e Linux: solo l'eseguibile zpaqfranz è richiesto (niente DLL)
+  // macOS e Linux: solo l'eseguibile zpaqfranz è richiesto
   ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz';
   {$ENDIF}
 
@@ -1183,7 +1405,7 @@ begin
 
   {$IFDEF WINDOWS}
   {$IFDEF CPU32}
-  // 32-bit: solo zpaqfranzxp.exe richiesto, nessuna DLL
+  // 32-bit: solo zpaqfranzxp.exe richiesto
   if not ExeFound then
   begin
     AddLog('WARNING: zpaqfranzxp.exe is missing.');
@@ -1195,7 +1417,7 @@ begin
       mtWarning, [mbOK], 0);
     AddLog('Missing zpaqfranzxp.exe. Offering download...');
     Application.ProcessMessages;
-    if TryDownloadDLL then  // TryDownloadDLL scarica anche l'exe in modalità 32-bit
+    if TryDownloadExternal then  // TryDownloadExternal scarica anche l'exe in modalità 32-bit
     begin
       ExeFound := FileExists(ExePath);
       if not ExeFound then
@@ -1219,63 +1441,37 @@ begin
     btnOpen.Enabled := False;
     Exit;
   end;
-  // In modalità 32-bit il bridge non usa DLL: usa direttamente l'exe
-  AddLog('32-bit mode: using zpaqfranzxp.exe directly (no DLL).');
+  // In modalità 32-bit il bridge
+  AddLog('32-bit mode: using zpaqfranzxp.exe directly.');
   // Configura il bridge con il path di zpaqfranzxp.exe
-  FBridge.LoadDLL(ExtractFilePath(ParamStr(0)) + 'zpaqfranzxp.exe');
+  FBridge.LoadExternal(ExtractFilePath(ParamStr(0)) + 'zpaqfranzxp.exe');
   btnOpen.Enabled := True;
   Result := True;
   {$ELSE}
-  // 64-bit: controlla presenza DLL
-  DllFound := FileExists(DllPath);
-  AddLog('DLL present: ' + BoolToStr(DllFound, 'YES', 'NO') + '  [' + DllPath + ']');
+  // 64-bit
 
   // Su Windows ENTRAMBI i file sono obbligatori
-  if not ExeFound or not DllFound then
+  if not ExeFound then
   begin
-    if not ExeFound and not DllFound then
-    begin
-      AddLog('WARNING: Both zpaqfranz.exe and zpaqfranz.dll are missing.');
-      MessageDlg('Missing files',
-        'Both zpaqfranz.exe and zpaqfranz.dll are missing.' + sLineBreak +
-        'The application needs BOTH files to work.' + sLineBreak + sLineBreak +
-        'Expected location: ' + ExtractFilePath(ParamStr(0)) + sLineBreak +
-        'The application will try to download them.',
-        mtWarning, [mbOK], 0);
-    end
-    else if not ExeFound then
-    begin
+
       AddLog('WARNING: zpaqfranz.exe is missing.');
       MessageDlg('Missing file',
         'zpaqfranz.exe is missing.' + sLineBreak +
-        'Both zpaqfranz.exe AND zpaqfranz.dll must be present.' + sLineBreak + sLineBreak +
         'Expected location: ' + ExePath + sLineBreak +
         'The application will try to download it.',
         mtWarning, [mbOK], 0);
-    end
-    else
-    begin
-      AddLog('WARNING: zpaqfranz.dll is missing.');
-      MessageDlg('Missing file',
-        'zpaqfranz.dll is missing.' + sLineBreak +
-        'Both zpaqfranz.exe AND zpaqfranz.dll must be present.' + sLineBreak + sLineBreak +
-        'Expected location: ' + DllPath + sLineBreak +
-        'The application will try to download it.',
-        mtWarning, [mbOK], 0);
-    end;
+
 
     // Offri download automatico
     AddLog('Missing files. Offering download...');
     Application.ProcessMessages;
 
-    if TryDownloadDLL then
+    if TryDownloadExternal then
     begin
       ExeFound := FileExists(ExePath);
-      DllFound  := FileExists(DllPath);
-      AddLog('After download - EXE: ' + BoolToStr(ExeFound, 'YES', 'NO') +
-             '  DLL: ' + BoolToStr(DllFound, 'YES', 'NO'));
+      AddLog('After download - EXE: ' + BoolToStr(ExeFound, 'YES', 'NO'));
 
-      if not ExeFound or not DllFound then
+      if not ExeFound then
       begin
         AddLog('ERROR: Download incomplete. Open disabled.');
         btnOpen.Enabled := False;
@@ -1284,12 +1480,6 @@ begin
       if not ValidateEXE then
       begin
         AddLog('FATAL: Downloaded EXE validation failed.');
-        btnOpen.Enabled := False;
-        Exit;
-      end;
-      if not ValidateDLL then
-      begin
-        AddLog('FATAL: Downloaded DLL validation failed.');
         btnOpen.Enabled := False;
         Exit;
       end;
@@ -1310,25 +1500,19 @@ begin
       btnOpen.Enabled := False;
       Exit;
     end;
-    if not ValidateDLL then
-    begin
-      AddLog('FATAL: DLL hash validation failed. Blocking open.');
-      btnOpen.Enabled := False;
-      Exit;
-    end;
   end;
 
   // --- Windows 64-bit: carica il bridge (richiede ENTRAMBI i file) ---
-  if FBridge.LoadDLL then
+  if FBridge.LoadExternal then
   begin
-    AddLog('Bridge loaded: ' + FBridge.DLLPath);
+    AddLog('Bridge loaded: ' + FBridge.ExternalPath);
     btnOpen.Enabled := True;
     Result := True;
   end
   else
   begin
-    AddLog('ERROR: Could not load bridge (zpaqfranz.dll). Open disabled.');
-    AddLog('Make sure BOTH zpaqfranz.exe AND zpaqfranz.dll are in: ' +
+    AddLog('ERROR: Could not load bridge Open disabled.');
+    AddLog('Make sure zpaqfranz.exe is : ' +
            ExtractFilePath(ParamStr(0)));
     btnOpen.Enabled := False;
   end;
@@ -1350,12 +1534,12 @@ begin
     Exit;
   end;
 
-  // EXE trovato: carica il bridge (solo EXE, niente DLL)
+  // EXE trovato: carica il bridge (solo EXE)
   // NOTA: la validazione SHA256 di zpaqfranz è disabilitata su macOS/Linux
   // (l'utente procura l'eseguibile autonomamente per la propria piattaforma)
-  if FBridge.LoadDLL then
+  if FBridge.LoadExternal then
   begin
-    AddLog('Bridge loaded (EXE mode): ' + FBridge.DLLPath);
+    AddLog('Bridge loaded (EXE mode): ' + FBridge.ExternalPath);
     btnOpen.Enabled := True;
     Result := True;
   end
@@ -1424,63 +1608,6 @@ begin
   {$ENDIF}
 end;
 
-function TfrmMain.ValidateDLL: Boolean;
-{$IFDEF WINDOWS}
-var
-  DLLPath, ActualHash: string;
-{$ENDIF}
-begin
-  Result := True;
-
-  {$IFDEF WINDOWS}
-  // Su macOS/Linux non esiste la DLL: la validazione viene saltata
-  // e l'unico controllo è ValidateEXE (zpaqfranz).
-
-  // Modalità sviluppo: hash placeholder → skip
-  if EXPECTED_DLL_HASH = '0000000000000000000000000000000000000000000000000000000000000000' then
-  begin
-    AddLog('DLL validation: SKIPPED (development mode)');
-    Exit;
-  end;
-
-  DLLPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
-
-  // File assente: non è compito di questo metodo segnalarlo
-  if not FileExists(DLLPath) then Exit;
-
-  AddLog('DLL validation: Computing SHA256...');
-  ActualHash := SHA256File(DLLPath);
-
-  if ActualHash = '' then
-  begin
-    AddLog('DLL validation: ERROR - Could not compute hash');
-    Result := False;
-    MessageDlg(S('dlg_dll_validation_error', 'Validation Error'),
-      S('msg_dll_hash_compute_fail', 'Cannot compute hash of the DLL file.'),
-      mtError, [mbOK], 0);
-    Exit;
-  end;
-
-  AddLog('DLL Expected: ' + EXPECTED_DLL_HASH);
-  AddLog('DLL Actual:   ' + ActualHash);
-
-  if LowerCase(ActualHash) <> LowerCase(EXPECTED_DLL_HASH) then
-  begin
-    AddLog('DLL validation: FAILED - Hash mismatch!');
-    Result := False;
-    MessageDlg(S('dlg_dll_validation_error', 'Validation Error'),
-      S('msg_dll_hash_mismatch', 'Security check failed for zpaqfranz.dll!' + sLineBreak +
-        'The file does not match the expected version.' + sLineBreak +
-        'The file may be corrupted or tampered with.'),
-      mtError, [mbOK], 0);
-  end
-  else
-    AddLog('DLL validation: PASSED');
-  {$ELSE}
-  AddLog('DLL validation: SKIPPED (not required on this platform)');
-  {$ENDIF}
-end;
-
 function TfrmMain.ValidateXP: Boolean;
 {$IFDEF CPU32}
 var
@@ -1523,18 +1650,18 @@ begin
   {$ENDIF}
 end;
 
-function TfrmMain.TryDownloadDLL: Boolean;
+function TfrmMain.TryDownloadExternal: Boolean;
 {$IFDEF WINDOWS}
 var
   Checker:          TUpdateChecker;
   UpdateInfo:       TUpdateInfo;
-  ExeData, DllData: TBytes;
-  ExeHash, DllHash: string;
-  ExePath, DllPath: string;
+  ExeData: TBytes;
+  ExeHash:string;
+  ExePath:string;
   FS: TFileStream;
 begin
   Result := False;
-  AddLog('--- TryDownloadDLL: START ---');
+  AddLog('--- TryDownloadExternal: START ---');
   AddLog('App path: ' + ExtractFilePath(ParamStr(0)));
 
   {$IFDEF CPU32}
@@ -1544,7 +1671,7 @@ begin
     'Do you want to download it now?',
     mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
   begin
-    AddLog('TryDownloadDLL: user cancelled.');
+    AddLog('TryDownloadExternal: user cancelled.');
     Exit;
   end;
 
@@ -1583,7 +1710,7 @@ begin
     AddLog('XP EXE hash expected:  ' + UpdateInfo.EXEInfo.SHA256Hash);
     if ExeHash <> UpdateInfo.EXEInfo.SHA256Hash then
     begin
-      AddLog('TryDownloadDLL: zpaqfranzxp.exe HASH MISMATCH');
+      AddLog('TryDownloadExternal: zpaqfranzxp.exe HASH MISMATCH');
       ShowMessage('Security check failed on zpaqfranzxp.exe.');
       Exit;
     end;
@@ -1600,27 +1727,26 @@ begin
     except
       on E: Exception do
       begin
-        AddLog('TryDownloadDLL: save FAILED - ' + E.ClassName + ': ' + E.Message);
+        AddLog('TryDownloadExternal: save FAILED - ' + E.ClassName + ': ' + E.Message);
         ShowMessage('Cannot save file. Check folder permissions.');
       end;
     end;
   finally
     Checker.Free;
-    AddLog('--- TryDownloadDLL: END result=' + BoolToStr(Result, 'TRUE', 'FALSE') + ' ---');
+    AddLog('--- TryDownloadExternal: END result=' + BoolToStr(Result, 'TRUE', 'FALSE') + ' ---');
     pgrProgressLog.Position := 0;
     pgrProgressLog.Visible  := False;
     pgrProgresso.Position   := 0;
     pgrProgresso.Visible    := False;
   end;
   {$ELSE}
-  // === 64-bit: scarica zpaqfranz.exe + zpaqfranz.dll ===
-  if MessageDlg(S('dlg_dll_missing_title', 'Files Missing'),
-    S('dlg_dll_missing_msg',
-      'zpaqfranz.exe and zpaqfranz.dll are required but not found.' + sLineBreak +
-      'Do you want to download both files now?'),
+  // === 64-bit: scarica zpaqfranz.exe  ===
+  if MessageDlg(S('dlg_external_missing_title', 'Files Missing'),
+    S('dlg_external_missing_msg',
+      'zpaqfranz.exe is required but not found.' + sLineBreak +
+      'Do you want to download now?'),
     mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
   begin
-    AddLog('TryDownloadDLL: user cancelled.');
     Exit;
   end;
 
@@ -1640,7 +1766,7 @@ begin
     begin
       if not UpdateInfo.Valid then
       begin
-        ShowMessage(S('dlg_dll_download_fail',
+        ShowMessage(S('dlg_external_download_fail',
           'Failed to connect to update server.') + sLineBreak +
           'Check the Log tab for details.');
         Exit;
@@ -1654,7 +1780,7 @@ begin
            IntToStr(UpdateInfo.EXEInfo.FileSize div 1024) + ' KB)...');
     if not Checker.DownloadFile_Public(ExeData) then
     begin
-      ShowMessage(S('dlg_dll_download_fail',
+      ShowMessage(S('dlg_external_download_fail',
         'Failed to download zpaqfranz.exe.') + sLineBreak +
         'Check the Log tab for details.');
       Exit;
@@ -1665,35 +1791,15 @@ begin
     AddLog('EXE hash expected:  ' + UpdateInfo.EXEInfo.SHA256Hash);
     if ExeHash <> UpdateInfo.EXEInfo.SHA256Hash then
     begin
-      AddLog('TryDownloadDLL: EXE HASH MISMATCH');
-      ShowMessage(S('dlg_dll_hash_fail', 'Security check failed on zpaqfranz.exe.'));
+      AddLog('TryDownloadExternal: EXE HASH MISMATCH');
+      ShowMessage(S('dlg_external_hash_fail', 'Security check failed on zpaqfranz.exe.'));
       Exit;
     end;
 
-    // --- Scarica zpaqfranz.dll ---
-    AddLog('Downloading zpaqfranz.dll (' +
-           IntToStr(UpdateInfo.DLLInfo.FileSize div 1024) + ' KB)...');
-    if not Checker.DownloadDLLFile(DllData) then
-    begin
-      ShowMessage(S('dlg_dll_download_fail',
-        'Failed to download zpaqfranz.dll.') + sLineBreak +
-        'Check the Log tab for details.');
-      Exit;
-    end;
 
-    DllHash := Checker.CalculateSHA256FromBytes_Public(DllData);
-    AddLog('DLL hash computed:  ' + DllHash);
-    AddLog('DLL hash expected:  ' + UpdateInfo.DLLInfo.SHA256Hash);
-    if DllHash <> UpdateInfo.DLLInfo.SHA256Hash then
-    begin
-      AddLog('TryDownloadDLL: DLL HASH MISMATCH');
-      ShowMessage(S('dlg_dll_hash_fail', 'Security check failed on zpaqfranz.dll.'));
-      Exit;
-    end;
 
     // --- Salva entrambi su disco ---
     ExePath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.exe';
-    DllPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
 
     try
       AddLog('Saving zpaqfranz.exe to ' + ExePath);
@@ -1702,25 +1808,20 @@ begin
         if Length(ExeData) > 0 then FS.Write(ExeData[0], Length(ExeData));
       finally FS.Free; end;
 
-      AddLog('Saving zpaqfranz.dll to ' + DllPath);
-      FS := TFileStream.Create(DllPath, fmCreate);
-      try
-        if Length(DllData) > 0 then FS.Write(DllData[0], Length(DllData));
-      finally FS.Free; end;
 
       AddLog('Both files saved successfully.');
       Result := True;
     except
       on E: Exception do
       begin
-        AddLog('TryDownloadDLL: save FAILED - ' + E.ClassName + ': ' + E.Message);
-        ShowMessage(S('dlg_dll_save_fail', 'Cannot save files. Check folder permissions.'));
+        AddLog('TryDownloadExternal: save FAILED - ' + E.ClassName + ': ' + E.Message);
+        ShowMessage(S('dlg_external0_save_fail', 'Cannot save files. Check folder permissions.'));
       end;
     end;
 
   finally
     Checker.Free;
-    AddLog('--- TryDownloadDLL: END result=' + BoolToStr(Result, 'TRUE', 'FALSE') + ' ---');
+    AddLog('--- TryDownloadExternal: END result=' + BoolToStr(Result, 'TRUE', 'FALSE') + ' ---');
     pgrProgressLog.Position := 0;
     pgrProgressLog.Visible  := False;
     pgrProgresso.Position   := 0;
@@ -1733,7 +1834,7 @@ end;
 // L'utente deve procurarsi zpaqfranz per la propria piattaforma manualmente.
 begin
   Result := False;
-  AddLog('TryDownloadDLL: automatic download not available on this platform.');
+  AddLog('TryDownloadExternal: automatic download not available on this platform.');
   MessageDlg('zpaqfranz not found',
     'The zpaqfranz executable is required but was not found.' + sLineBreak + sLineBreak +
     'Please download zpaqfranz for your platform from:' + sLineBreak +
@@ -1819,7 +1920,7 @@ begin
     // I valori in INI sono per-mille della ClientWidth (salvati così per essere
     // immuni a DPI/scaling). Vengono applicati in pixel in OnTimerRestore,
     // quando la form ha già la sua dimensione definitiva.
-    for I := 0 to lvAddFiles.Columns.Count - 1 do
+    for I := 0 to lvAddFiles.Header.Columns.Count - 1 do
     begin
       W := Ini.ReadInteger('ListColumns', 'Width' + IntToStr(I), -1);
       AddLog('LoadSettings: carico dati lista col[' + IntToStr(I) + ']=' + IntToStr(W) + 'o/oo');
@@ -1861,6 +1962,7 @@ begin
     FAutoUpdateCheck := Ini.ReadBool('Updates', 'CheckOnStartup', False);
     if Assigned(chkAutoUpdate) then
       chkAutoUpdate.Checked := FAutoUpdateCheck;
+    FKeepTempFiles := Ini.ReadBool('Debug', 'KeepTempFiles', False);
   finally
     Ini.Free;
   end;
@@ -1886,13 +1988,13 @@ begin
       // --- Larghezze colonne lvAddFiles ---
       // Salviamo come per-mille della ClientWidth: immune a DPI/scaling macOS.
       // Al caricamento verranno riconvertite in pixel con la ClientWidth del momento.
-      if lvAddFiles.ClientWidth > 0 then
-        for I := 0 to lvAddFiles.Columns.Count - 1 do
+      if lvAddFiles.Width > 0 then
+        for I := 0 to lvAddFiles.Header.Columns.Count - 1 do
           Ini.WriteInteger('ListColumns', 'Width' + IntToStr(I),
-            lvAddFiles.Columns[I].Width * 1000 div lvAddFiles.ClientWidth)
+            lvAddFiles.Header.Columns[I].Width * 1000 div lvAddFiles.Width)
       else
-        for I := 0 to lvAddFiles.Columns.Count - 1 do
-          Ini.WriteInteger('ListColumns', 'Width' + IntToStr(I), lvAddFiles.Columns[I].Width);
+        for I := 0 to lvAddFiles.Header.Columns.Count - 1 do
+          Ini.WriteInteger('ListColumns', 'Width' + IntToStr(I), lvAddFiles.Header.Columns[I].Width);
       // --- Larghezze colonne VST (pixel assoluti, applicate dopo SetBounds) ---
       for I := 0 to VST.Header.Columns.Count - 1 do
         Ini.WriteInteger('Columns', 'Width' + IntToStr(I), VST.Header.Columns[I].Width);
@@ -1908,6 +2010,7 @@ begin
       if Assigned(chkAutoUpdate) then
         FAutoUpdateCheck := chkAutoUpdate.Checked;
       Ini.WriteBool('Updates', 'CheckOnStartup', FAutoUpdateCheck);
+      Ini.WriteBool('Debug', 'KeepTempFiles', FKeepTempFiles);
     finally
       Ini.Free;
     end;
@@ -2347,13 +2450,39 @@ begin
   Dialog := TfrmExtract.Create(Self);
   try
     Dialog.SetExtractionParamsAll(FilePath, FPasswordKey, FPasswordFranzen);
-    Dialog.SetDLLPath(FBridge.DLLPath);
+    Dialog.SetExternalPath(FBridge.ExternalPath);
     Dialog.ShowModal;
     if Dialog.GetDestPath <> '' then
       AddLog('Extraction destination: ' + Dialog.GetDestPath);
   finally
     Dialog.Free;
   end;
+end;
+
+{ Apre l'archivio .zpaq selezionato in modalità Time Machine (TabArchive),
+  indipendentemente dal numero di versioni. Questo era il comportamento
+  precedente del doppio click per archivi con 2+ versioni. }
+procedure TfrmMain.mnuAddBrowseVersionsClick(Sender: TObject);
+var
+  FilePath: string;
+begin
+  FilePath := GetSelectedZpaqPath;
+  if FilePath = '' then
+  begin
+    ShowMessage(S('msg_no_zpaq_selected', 'No ZPAQ archive selected.'));
+    Exit;
+  end;
+  if FLoadingArchive then Exit;
+
+  AddLog('Browse all versions: ' + FilePath);
+  FLoadingArchive       := True;
+  FLogProgressLineIndex := -1;
+  FFileListAbortRequested    := False;
+  { Svuota FArchiveBrowsePath così OnBridgeComplete va in TabArchive (Time Machine) }
+  FArchiveBrowsePath    := '';
+  SetLoadingState(True);
+  PageControl1.ActivePage := TabLog;
+  DoLoadArchive(FilePath);
 end;
 
 procedure TfrmMain.mnuAddTestZpaqClick(Sender: TObject);
@@ -2379,7 +2508,7 @@ begin
   Dialog := TfrmExtract.Create(Self);
   try
     Dialog.SetTestParams(AArchivePath, FPasswordKey, FPasswordFranzen);
-    Dialog.SetDLLPath(FBridge.DLLPath);
+    Dialog.SetExternalPath(FBridge.ExternalPath);
     Dialog.ShowModal;
   finally Dialog.Free; end;
 end;
@@ -2410,10 +2539,13 @@ begin VST.FullCollapse; end;
 
 procedure TfrmMain.PageControl1Change(Sender: TObject);
 begin
-  // Blocca il cambio tab durante il caricamento: rimanda sempre alla TabLog
+  // Blocca il cambio tab durante il caricamento
   if FLoadingArchive then
   begin
-    PageControl1.ActivePage := TabLog;
+    if FLoadFromBrowseTab then
+      PageControl1.ActivePage := TabAdd   // resta sulla tab Browse
+    else
+      PageControl1.ActivePage := TabLog;  // resta sulla tab Log
     Exit;
   end;
   if PageControl1.ActivePage = TabAdd then RefreshAddFilesList;
@@ -2421,54 +2553,81 @@ end;
 
 procedure TfrmMain.SetLoadingState(ALoading: Boolean);
 begin
-  pnlLogToolbar.Visible := ALoading;
-  btnAbortLoad.Enabled  := ALoading;
-  // Impedisce cambio tab: OnChange lo gestisce, ma disabilitare le tab dà
-  // un feedback visivo immediato all'utente
-  TabAdd.Enabled      := not ALoading;
+  if FLoadFromBrowseTab then
+  begin
+    // === Caricamento avviato dalla tab Browse: usa pnlLoading sovrapposto al file list ===
+    pnlLoading.Visible := ALoading;
+    btnAbortLoading.Enabled := ALoading;
+    pnlLogToolbar.Visible := False; // non serve il toolbar del log
+    if ALoading then
+    begin
+      lblLoadingETA.Caption := '00:00:00';
+      pgrLoading.Position := 0;
+      pgrLoading.Max := 100;
+      // Resta sulla tab Browse, NON cambiare tab
+    end;
+  end
+  else
+  begin
+    // === Caricamento avviato dal log o da Open: comportamento originale ===
+    pnlLogToolbar.Visible := ALoading;
+    pnlLoading.Visible := False;
+    if ALoading then
+    begin
+      lblLogStatus.Caption := 'Loading archive: ' + ExtractFileName(FArchivePath);
+      PageControl1.ActivePage := TabLog;
+    end;
+  end;
+
+  btnAbortLoading.Enabled := ALoading;
+  // Impedisce cambio tab durante il caricamento (tranne la tab corrente)
   TabArchive.Enabled  := not ALoading;
   TabSettings.Enabled := not ALoading;
-  if ALoading then
+  if FLoadFromBrowseTab then
   begin
-    lblLogStatus.Caption := 'Loading archive: ' + ExtractFileName(FArchivePath);
-    PageControl1.ActivePage := TabLog;
+    TabAdd.Enabled := True; // restiamo qui
+    TabLog.Enabled := not ALoading;
+  end
+  else
+  begin
+    TabAdd.Enabled := not ALoading;
+    TabLog.Enabled := True; // restiamo qui
   end;
 end;
 
 procedure TfrmMain.btnAbortLoadClick(Sender: TObject);
 begin
-  btnAbortLoad.Enabled := False;
+  btnAbortLoading.Enabled := False;
   lblLogStatus.Caption := 'Aborting...';
-  AddLog('*** ABORT requested by user ***');
+  AddArchiveLog('*** ABORT requested by user ***');
+  FileListDbgWrite('btnAbortLoadClick: ABORT requested');
 
   // Percorso EXE asincrono: termina il processo
   if FBridge.Busy then
     FBridge.AbortCommand;
 
-  // Percorso DLL thread: setta il flag per il percorso pulito...
-  FDLLAbortRequested := True;
+  // Percorso file-based thread: setta il flag e termina il thread
+  FFileListAbortRequested := True;
+  if Assigned(FileListThread) then
+    FileListThread.Terminate;
 
-  // ...e forza la terminazione immediata del thread DLL.
-  // TerminateThread è brutale ma necessario: ZpaqRun non espone un meccanismo
-  // di cancellazione, e tra un $$$NULL-W e l'altro possono passare molti secondi.
-  // NB: TerminateThread bypassa il blocco finally in Execute, quindi
-  // dobbiamo accodar manualmente OnDLLListComplete per ripristinare la UI.
-  {$IFDEF WINDOWS}
-  if Assigned(FastDLLThread) and not FastDLLThread.Finished then
-  begin
-    Windows.TerminateThread(FastDLLThread.ThreadHandle, 1);
-    Application.QueueAsyncCall(@OnDLLListComplete, 0);
-  end;
-  {$ENDIF}
+  FileListDbgWrite('btnAbortLoadClick: abort flags set');
 end;
 
-{ Aggiorna la progress bar dalla GUI — chiamato nel thread principale via QueueAsyncCall. }
-procedure TfrmMain.DLLGuiUpdate(Data: PtrInt);
+{ Aggiorna la progress bar dalla GUI — chiamato nel thread principale via QueueAsyncCall.
+  Riceve la percentuale dalle righe @SPK@DEC@ (0-99, fase decompressione) e W (10-90, fase output). }
+procedure TfrmMain.FileListGuiUpdate(Data: PtrInt);
 var Pct: Integer;
+    ElapsedSecs: Double;
+    ETASecs: Int64;
 begin
   Pct := Integer(Data);
+  if Pct < 0 then Pct := 0;
+  if Pct > 100 then Pct := 100;
   pgrProgressLog.Max := 100;
   pgrProgressLog.Position := Pct;
+  pgrProgresso.Max := 100;
+  pgrProgresso.Position := Pct;
   // Workaround animazione Aero
   if Pct < pgrProgressLog.Max then
   begin
@@ -2476,61 +2635,192 @@ begin
     pgrProgressLog.Position := Pct;
   end;
   lblLoadInfo.Caption := 'Lettura archivio: ' + IntToStr(Pct) + '%';
+
+  // === Aggiorna anche pnlLoading (visibile quando FLoadFromBrowseTab) ===
+  if FLoadFromBrowseTab and pnlLoading.Visible then
+  begin
+    pgrLoading.Max := 100;
+    pgrLoading.Position := Pct;
+    // Workaround animazione Aero anche per pgrLoading
+    if Pct < pgrLoading.Max then
+    begin
+      pgrLoading.Position := Pct + 1;
+      pgrLoading.Position := Pct;
+    end;
+    // Calcola ETA basato sul tempo trascorso e la percentuale
+    if Pct > 0 then
+    begin
+      ElapsedSecs := (Now - FLoadStartTime) * 86400.0;
+      ETASecs := Round(ElapsedSecs * (100 - Pct) / Pct);
+      lblLoadingETA.Caption := FormatETA(ETASecs);
+    end
+    else
+      lblLoadingETA.Caption := '--:--:--';
+  end;
+
+  // Processa eventi GUI in coda (rende il bottone ABORT reattivo)
+  Application.ProcessMessages;
 end;
 
-{ Chiamato dal thread principale via QueueAsyncCall quando TDLLListThread termina. }
-procedure TfrmMain.OnDLLListComplete(Data: PtrInt);
+
+{ Chiamato dal thread principale via QueueAsyncCall quando TFileListThread termina. }
+procedure TfrmMain.OnFileListComplete(Data: PtrInt);
 var
   ElapsedSecs: Double;
   WasAborted: Boolean;
+  TempFile: string;
+  I: Integer;
 begin
-  // Attendi che il thread sia davvero terminato e liberalo
-  if Assigned(FastDLLThread) then
+  FileListDbgWrite('OnFileListComplete: START');
+
+  TempFile := '';
+
+  // Attendi che il thread sia davvero terminato e recupera i risultati
+  if Assigned(FileListThread) then
   begin
-    FastDLLThread.WaitFor;
-    FreeAndNil(FastDLLThread);
+    FileListDbgWrite('OnFileListComplete: waiting for thread...');
+    FileListThread.WaitFor;
+    TempFile := FileListThread.TempFile;
+    FileListDbgWrite('OnFileListComplete: thread done. TempFile=' + TempFile +
+                     ' Success=' + BoolToStr(FileListThread.Success, 'T', 'F') +
+                     ' ExitCode=' + IntToStr(FileListThread.ExitCode) +
+                     ' StderrLines=' + IntToStr(FileListThread.StderrLog.Count));
+
+    { Mostra le righe stderr nel memArchive (output zpaqfranz: info, errori) }
+    if FileListThread.StderrLog.Count > 0 then
+    begin
+      memArchive.Lines.BeginUpdate;
+      try
+        for I := 0 to FileListThread.StderrLog.Count - 1 do
+          memArchive.Lines.Add(FileListThread.StderrLog[I]);
+        memArchive.SelStart := Length(memArchive.Text);
+      finally
+        memArchive.Lines.EndUpdate;
+      end;
+    end;
+
+    FreeAndNil(FileListThread);
   end;
 
-  // Libera la DLL
-  if FastDLLhDLL <> NilHandle then
-  begin
-    FreeLibrary(FastDLLhDLL);
-    FastDLLhDLL := NilHandle;
-  end;
-
-  WasAborted := FDLLAbortRequested;
-
-  // Guard: può arrivare sia da TerminateThread (manuale) che da Execute (normale).
-  // La seconda chiamata trova FastDLLhDLL già = NilHandle → esce subito.
-  if (FastDLLhDLL = NilHandle) and not WasAborted and not Assigned(FastDLLBuffer) then
-    Exit;
+  WasAborted := FFileListAbortRequested;
+  FileListDbgWrite('OnFileListComplete: WasAborted=' + BoolToStr(WasAborted, 'T', 'F'));
 
   if WasAborted then
   begin
-    AddLog('*** Loading ABORTED by user ***');
-    FreeAndNil(FastDLLBuffer);
+    AddArchiveLog('*** Loading ABORTED by user ***');
+    FileListDbgWrite('OnFileListComplete: ABORT path');
+    if not FKeepTempFiles then
+    begin
+      if (TempFile <> '') and FileExists(TempFile) then
+      begin
+        SysUtils.DeleteFile(TempFile);
+        FileListDbgWrite('OnFileListComplete: temp file deleted: ' + TempFile);
+      end;
+    end
+    else
+      AddArchiveLog('DEBUG: Temp file kept: ' + TempFile);
     pgrProgresso.Position   := 0;
     pgrProgressLog.Position := 0;
     btnOpen.Enabled := True;
     FLoadingArchive := False;
     FLogProgressLineIndex := -1;
     SetLoadingState(False);
+    FLoadFromBrowseTab := False;
     Exit;
   end;
 
-  // Parsing dei dati raccolti dal thread
-  try
-    if Assigned(FastDLLBuffer) then
-      FArchiveData := FBridge.ParsePakkaList(FastDLLBuffer);
-  finally
-    FreeAndNil(FastDLLBuffer);
+  // Verifica che il file temporaneo esista
+  if (TempFile = '') or not FileExists(TempFile) then
+  begin
+    AddArchiveLog('ERROR: Temp file not found or empty: ' + TempFile);
+    FileListDbgWrite('OnFileListComplete: ERROR temp file missing');
+    pgrProgresso.Position   := 0;
+    pgrProgressLog.Position := 0;
+    btnOpen.Enabled := True;
+    FLoadingArchive := False;
+    FLogProgressLineIndex := -1;
+    SetLoadingState(False);
+    FLoadFromBrowseTab := False;
+    Exit;
   end;
 
-  AddLog('Found ' + IntToStr(Length(FArchiveData.GlobalVersions)) +
+  // Salva il path per riferimento debug
+  FTempListFile := TempFile;
+  AddArchiveLog('Temp listing file: ' + TempFile);
+  AddArchiveLog('Temp file size: ' + IntToStr(FileSizeByName(TempFile)) + ' bytes');
+  FileListDbgWrite('OnFileListComplete: starting ParsePakkaListFromFile...');
+
+  // Progress bar al 100% durante il parsing
+  pgrProgressLog.Position := 100;
+  pgrProgresso.Position := 100;
+  lblLoadInfo.Caption := 'Parsing temp file...';
+  if FLoadFromBrowseTab and pnlLoading.Visible then
+  begin
+    pgrLoading.Position := 100;
+    lblLoadingETA.Caption := 'Parsing...';
+  end;
+  Application.ProcessMessages;
+
+  // Controlla se l'utente ha premuto Abort nel frattempo
+  if FFileListAbortRequested then
+  begin
+    AddArchiveLog('*** Loading ABORTED by user (before parsing) ***');
+    FileListDbgWrite('OnFileListComplete: ABORT before parse');
+    if not FKeepTempFiles then
+      if (TempFile <> '') and FileExists(TempFile) then
+        SysUtils.DeleteFile(TempFile);
+    pgrProgresso.Position   := 0;
+    pgrProgressLog.Position := 0;
+    btnOpen.Enabled := True;
+    FLoadingArchive := False;
+    FLogProgressLineIndex := -1;
+    SetLoadingState(False);
+    FLoadFromBrowseTab := False;
+    Exit;
+  end;
+
+  // Parsing dei dati dal file temporaneo (riga per riga, senza caricare tutto in RAM)
+  try
+    FArchiveData := FBridge.ParsePakkaListFromFile(TempFile);
+  except
+    on E: Exception do
+    begin
+      AddArchiveLog('ERROR during parsing: ' + E.ClassName + ': ' + E.Message);
+      FileListDbgWrite('OnFileListComplete: PARSE EXCEPTION: ' + E.Message);
+    end;
+  end;
+
+  FileListDbgWrite('OnFileListComplete: parse done. Versions=' +
+                   IntToStr(Length(FArchiveData.GlobalVersions)) +
+                   ' Files=' + IntToStr(Length(FArchiveData.Files)));
+
+  { Cleanup file temporaneo }
+  if not FKeepTempFiles then
+  begin
+    if FileExists(TempFile) then
+    begin
+      SysUtils.DeleteFile(TempFile);
+      FileListDbgWrite('OnFileListComplete: temp file deleted');
+    end;
+  end
+  else
+    AddArchiveLog('DEBUG: Temp file kept: ' + TempFile);
+
+  AddArchiveLog('Found ' + IntToStr(Length(FArchiveData.GlobalVersions)) +
          ' versions, ' + IntToStr(Length(FArchiveData.Files)) + ' files');
+
+  FileListDbgWrite('OnFileListComplete: calling SetupTrackBar...');
   SetupTrackBar;
+  FileListDbgWrite('OnFileListComplete: SetupTrackBar done');
+
+  FileListDbgWrite('OnFileListComplete: calling BuildFilteredList...');
   BuildFilteredList;
+  FileListDbgWrite('OnFileListComplete: BuildFilteredList done. FilteredFiles=' +
+                   IntToStr(Length(FFilteredFiles)));
+
+  FileListDbgWrite('OnFileListComplete: calling RebuildTree...');
   RebuildTree;
+  FileListDbgWrite('OnFileListComplete: RebuildTree done');
 
   lblArchiveInfo.Caption  := ExtractFileName(FArchivePath);
   pgrProgresso.Position   := 0;
@@ -2539,28 +2829,57 @@ begin
   ElapsedSecs := (Now - FLoadStartTime) * 86400.0;
   lblLoadInfo.Caption := Format(S('lbl_loaded_fmt', '%d files loaded in %.3f s'),
                                 [Length(FArchiveData.Files), ElapsedSecs]);
+  AddArchiveLog(Format('%d files loaded in %.3f s', [Length(FArchiveData.Files), ElapsedSecs]));
   btnOpen.Enabled := True;
 
   FLoadingArchive := False;
   FLogProgressLineIndex := -1;
-  SetLoadingState(False);
 
-  if (FArchiveBrowsePath <> '') and
-     (Length(FArchiveData.GlobalVersions) < 2) and
-     (Length(FArchiveData.Files) > 0) then
-    ShowArchiveBrowse(FArchiveBrowsePath, FArchiveData)
+  FileListDbgWrite('OnFileListComplete: calling SetLoadingState(False)...');
+  SetLoadingState(False);
+  FLoadFromBrowseTab := False;
+  FileListDbgWrite('OnFileListComplete: SetLoadingState done');
+
+  FileListDbgWrite('OnFileListComplete: switching to tab...');
+
+  // Doppio click su .zpaq → browse mode (ultima versione, senza -all)
+  // Richiesta esplicita "all versions" → TabArchive (VirtualStringTree, con -all)
+  if (FArchiveBrowsePath <> '') and (Length(FArchiveData.Files) > 0) then
+  begin
+    FileListDbgWrite('OnFileListComplete: calling ShowArchiveBrowse...');
+    ShowArchiveBrowse(FArchiveBrowsePath, FArchiveData);
+    FileListDbgWrite('OnFileListComplete: ShowArchiveBrowse done');
+  end
   else
   begin
     FArchiveBrowsePath := '';
+    FileListDbgWrite('OnFileListComplete: setting ActivePage to TabArchive...');
     PageControl1.ActivePage := TabArchive;
+    FileListDbgWrite('OnFileListComplete: ActivePage set');
   end;
+
+  FileListDbgWrite('OnFileListComplete: === ALL DONE ===');
 end;
 
 procedure TfrmMain.PanelBottomResize(Sender: TObject);
+var
+  loadleft:integer;
+  loadtop:integer;
 begin
   btnTimeMachine.Width := tpanel(sender).width- btnTimeMachine.Left - 4;
   edtaddpath.width:=pnladdnav.width-edtaddpath.left-4;
   btnexit2.left:=pnladdtoolbar.width-btnexit2.width-4;
+  loadleft:=(lvaddfiles.width-pnlloading.Width) div 2;
+  if (loadleft>0) then
+  pnlloading.left:=loadleft
+  else
+  pnlloading.left:=0;
+
+  loadtop:=lvaddfiles.top+(lvaddfiles.height-pnlloading.height) div 2;
+  if (loadtop>0) then
+  pnlloading.top:=loadtop
+  else
+  pnlloading.top:=0;
 end;
 
 { === Archive loading === }
@@ -2568,12 +2887,36 @@ end;
 procedure TfrmMain.btnOpenClick(Sender: TObject);
 begin
   if FBridge.Busy then begin ShowMessage(S('msg_busy', 'Operation in progress, please wait.')); Exit; end;
-  if OpenDialog1.Execute then DoLoadArchive(OpenDialog1.FileName);
+  if OpenDialog1.Execute then
+  begin
+    { Apertura da bottone Open = tutte le versioni → FArchiveBrowsePath vuoto → -all }
+    FArchiveBrowsePath := '';
+    DoLoadArchive(OpenDialog1.FileName);
+  end;
 end;
 
 procedure TfrmMain.btnExit2Click(Sender: TObject);
 begin
   close;
+end;
+
+procedure TfrmMain.btnAbortLoadingClick(Sender: TObject);
+begin
+  btnAbortLoading.Enabled := False;
+  lblLoadingETA.Caption := 'Aborting...';
+  AddArchiveLog('*** ABORT requested by user (browse panel) ***');
+  FileListDbgWrite('btnAbortLoadingClick: ABORT requested');
+
+  // Percorso EXE asincrono: termina il processo
+  if FBridge.Busy then
+    FBridge.AbortCommand;
+
+  // Percorso file-based thread: setta il flag e termina il thread
+  FFileListAbortRequested := True;
+  if Assigned(FileListThread) then
+    FileListThread.Terminate;
+
+  FileListDbgWrite('btnAbortLoadingClick: abort flags set');
 end;
 
 procedure TfrmMain.DoLoadArchive(const AFileName: string);
@@ -2648,21 +2991,17 @@ end;
 
 function TfrmMain.BuildCommandString: string;
 begin
-  Result := 'pakka "' + FArchivePath + '" -all';
+  Result := 'pakka "' + FArchivePath + '" -catpaqmode';
+  { -all solo se NON siamo in browse mode (doppio click mostra solo ultima versione) }
+  if FArchiveBrowsePath = '' then
+    Result := Result + ' -all';
   if FPasswordKey <> '' then Result := Result + ' -key "' + FPasswordKey + '"';
   if FPasswordFranzen <> '' then Result := Result + ' -franzen "' + FPasswordFranzen + '"';
 end;
 
 procedure TfrmMain.RunPakkaList;
 var
-  {$IFDEF WINDOWS}
-  DLLPath: string;
-  hDLL: TLibHandle;
-  ZpaqRun:    TZpaqRunCommand;
-  ZpaqSetOut: procedure(cb: TOutputCallback); cdecl;
-  ZpaqReset:  TZpaqResetProc;
-  {$ENDIF}
-  ElapsedSecs: Double;
+  CmdStr, TempPath: string;
 begin
   pgrProgresso.Position := 0;
   VST.Clear;
@@ -2683,92 +3022,40 @@ begin
   btnOpen.Enabled := False;
   lblArchiveInfo.Caption := ExtractFileName(FArchivePath) + ' (' + S('lbl_loading', 'loading...') + ')';
   FLoadStartTime := Now;
+  FFileListAbortRequested := False;
 
-  {$IFDEF WINDOWS}
-  {$IFDEF CPU32}
-  // === 32-bit: niente DLL, usa zpaqfranzxp.exe via bridge ===
-  lblLoadInfo.Caption := S('lbl_loading', 'Loading via zpaqfranzxp...');
+  CmdStr := BuildCommandString;
+
+  FileListDbgWrite('RunPakkaList: START');
+  FileListDbgWrite('RunPakkaList: Archive=' + FArchivePath);
+  FileListDbgWrite('RunPakkaList: Command=' + CmdStr);
+  FileListDbgWrite('RunPakkaList: ExePath=' + FBridge.ExternalPath);
+
+
+
+  { === Percorso file temporaneo (default, tutte le piattaforme) === }
+  TempPath := FBridge.GetTempListingPath;
+  FTempListFile := TempPath;
+
+  FileListDbgWrite('RunPakkaList: TempFile=' + TempPath);
+
+  lblLoadInfo.Caption := S('lbl_loading', 'Loading via temp file...');
   Application.ProcessMessages;
-  AddLog('32-bit mode: running pakka list via zpaqfranzxp.exe...');
-  FBridge.IsDataMode := True;
-  TimerUpdate.Enabled := True;
-  if not FBridge.RunCommandAsync(BuildCommandString) then
-  begin
-    AddLog('ERROR: Failed to start command');
-    btnOpen.Enabled := True;
-    TimerUpdate.Enabled := False;
-    lblLoadInfo.Caption := '';
-    FLoadingArchive := False;
-    FLogProgressLineIndex := -1;
-    SetLoadingState(False);
-  end;
-  Exit;
-  {$ENDIF}
-  // === 64-bit WINDOWS: prima prova la DLL (listing in thread separato), poi fallback EXE ===
-  lblLoadInfo.Caption := S('lbl_loading', 'Loading fast via DLL...');
-  Application.ProcessMessages;
+  AddArchiveLog('Running pakka list via -out temp file...');
+  AddArchiveLog('Command: ' + CmdStr + ' -out "' + TempPath + '"');
 
-  DLLPath := ExtractFilePath(ParamStr(0)) + 'zpaqfranz.dll';
+  SetLoadingState(True);
 
-  AddLog('Attempting fast pakka list (Direct DLL)...');
+  pgrProgresso.Max := 100;
+  pgrProgresso.Position := 0;
+  pgrProgressLog.Max := 100;
+  pgrProgressLog.Position := 0;
+  lblLoadInfo.Caption := 'zpaqfranz writing to temp file...';
 
-  hDLL := LoadLibrary(pchar(DLLPath));
-  if hDLL <> NilHandle then
-  begin
-    Pointer(ZpaqRun) := GetProcAddress(hDLL, 'Zpaq_RunCommand');
-    Pointer(ZpaqSetOut) := GetProcAddress(hDLL, 'Zpaq_SetOutputCallback');
-    Pointer(ZpaqReset) := GetProcAddress(hDLL, 'Zpaq_ResetCallbacks');
+  FileListThread := TFileListThread.Create(FBridge, CmdStr, TempPath);
+  FileListThread.Start;
 
-    if Assigned(ZpaqRun) and Assigned(ZpaqSetOut) then
-    begin
-      FastDLLBuffer  := TStringList.Create;
-      FastDLLPending := '';
-      FastDLLDone    := False;
-      FastDLLhDLL    := hDLL;  // il thread libererà la DLL via OnDLLListComplete
-
-      pgrProgresso.Max := 100;
-      pgrProgresso.Position := 0;
-
-      ZpaqSetOut(@FastDLLOutputCallback);
-
-      // Avvia il thread: ZpaqRun gira in background, il thread principale è libero
-      FastDLLThread := TDLLListThread.Create(
-        AnsiString(BuildCommandString), ZpaqRun, ZpaqReset);
-      FastDLLThread.Start;
-
-      // Ritorna subito: OnDLLListComplete (via QueueAsyncCall) completerà il lavoro
-      Exit;
-    end
-    else
-    begin
-      AddLog('WARNING: DLL functions not found. Falling back to EXE...');
-      FreeLibrary(hDLL);
-      FastDLLhDLL := NilHandle;
-    end;
-  end
-  else AddLog('WARNING: DLL not found. Falling back to EXE async...');
-
-  {$ELSE}
-  // === macOS / Linux: usa direttamente l'EXE (niente DLL) ===
-  lblLoadInfo.Caption := S('lbl_loading', 'Loading via zpaqfranz...');
-  Application.ProcessMessages;
-  AddLog('Running pakka list via Executable (platform mode)...');
-  {$ENDIF}
-
-  // --- Percorso comune: listing asincrono tramite EXE ---
-  FBridge.IsDataMode := True;
-  TimerUpdate.Enabled := True;
-  AddLog('Running pakka list via Executable...');
-  if not FBridge.RunCommandAsync(BuildCommandString) then
-  begin
-    AddLog('ERROR: Failed to start command');
-    btnOpen.Enabled := True;
-    TimerUpdate.Enabled := False;
-    lblLoadInfo.Caption := '';
-    FLoadingArchive := False;
-    FLogProgressLineIndex := -1;
-    SetLoadingState(False);
-  end;
+  FileListDbgWrite('RunPakkaList: file thread started, returning to main loop');
 end;
 { === Evento Progress Telemetria === }
 procedure TfrmMain.OnBridgeProgress(Sender: TObject; Percent: Integer; const AMsg: string);
@@ -2820,6 +3107,18 @@ begin
   pgrProgressLog.Position := Percent;
   pgrProgresso.Position := Percent;
   lblLoadInfo.Caption := Format(S('lbl_loading_pct', 'Loading: %d%%'), [Percent]);
+
+  // === Aggiorna anche pnlLoading (visibile quando FLoadFromBrowseTab) ===
+  if FLoadFromBrowseTab and pnlLoading.Visible then
+  begin
+    pgrLoading.Max := 100;
+    pgrLoading.Position := Percent;
+    if Percent > 0 then
+      lblLoadingETA.Caption := FormatETA(Round((Now - FLoadStartTime) * 86400.0 * (100 - Percent) / Percent))
+    else
+      lblLoadingETA.Caption := '--:--:--';
+  end;
+
   Application.ProcessMessages;
 end;
 
@@ -2965,7 +3264,7 @@ begin
     FArchiveData := FBridge.ParsePakkaList(DataBuf);
   finally DataBuf.Free; end;
 
-  AddLog('Found ' + IntToStr(Length(FArchiveData.GlobalVersions)) + ' versions, ' + IntToStr(Length(FArchiveData.Files)) + ' files');
+  AddArchiveLog('Found ' + IntToStr(Length(FArchiveData.GlobalVersions)) + ' versions, ' + IntToStr(Length(FArchiveData.Files)) + ' files');
   SetupTrackBar;
   BuildFilteredList;
   RebuildTree;
@@ -2981,13 +3280,9 @@ begin
   FLogProgressLineIndex := -1;
   SetLoadingState(False);
 
-  // Decisione post-caricamento: se stiamo arrivando dal file selector (DblClick)
-  // e l'archivio ha meno di 2 versioni (include il caso 0 = formato streaming/bug
-  // di parsing dove la versione implicita non viene contata) → browse mode.
-  // Con 2+ versioni → tab archivio come sempre.
-  if (FArchiveBrowsePath <> '') and
-     (Length(FArchiveData.GlobalVersions) < 2) and
-     (Length(FArchiveData.Files) > 0) then
+  // Doppio click su .zpaq → browse mode (ultima versione)
+  // Richiesta esplicita "all versions" → TabArchive
+  if (FArchiveBrowsePath <> '') and (Length(FArchiveData.Files) > 0) then
   begin
     ShowArchiveBrowse(FArchiveBrowsePath, FArchiveData);
     { FArchiveBrowsePath NON azzerato: serve al popup Test/Extract in browse mode }
@@ -2995,7 +3290,6 @@ begin
   else
   begin
     FArchiveBrowsePath := '';
-    // (1) Torna a Browse se versione singola, altrimenti Versions (TabArchive)
     PageControl1.ActivePage := TabArchive;
   end;
 end;
@@ -3316,7 +3610,7 @@ var
   UpdateInfo: TUpdateInfo;
   CurrentBuild: Integer;
   FileVerInfo: TFileVersionInfo;
-  NewCatpaqPath, NewEXEPath, NewDLLPath, Msg, VerStr: string;
+  NewCatpaqPath, NewEXEPath, Msg, VerStr: string;
 begin
   // --- Leggi versione corrente ---
   FileVerInfo := TFileVersionInfo.Create(nil);
@@ -3367,12 +3661,10 @@ begin
     {$IFDEF WINDOWS}
     Msg := Format(S('msg_update_available_fmt', 'Your build %d is older than build %d.') + LineEnding +
       'Catpaq: %s (%s)' + LineEnding + 'zpaqfranz.exe: %s (%s)' + LineEnding +
-      'zpaqfranz.dll: %s (%s)' + LineEnding + LineEnding +
       S('msg_update_now', 'Do you want to update now?'),
       [CurrentBuild, UpdateInfo.CatpaqInfo.BuildNumber,
        FormatFileSize(UpdateInfo.CatpaqInfo.FileSize), UpdateInfo.CatpaqInfo.DateTime,
-       FormatFileSize(UpdateInfo.EXEInfo.FileSize), UpdateInfo.EXEInfo.DateTime,
-       FormatFileSize(UpdateInfo.DLLInfo.FileSize), UpdateInfo.DLLInfo.DateTime]);
+       FormatFileSize(UpdateInfo.EXEInfo.FileSize), UpdateInfo.EXEInfo.DateTime]);
     {$ELSE}
     Msg := Format(S('msg_update_available_fmt', 'Your build %d is older than build %d.') + LineEnding +
       'Catpaq: %s (%s)' + LineEnding + 'zpaqfranz: %s (%s)' + LineEnding + LineEnding +
@@ -3391,7 +3683,7 @@ begin
 
     // --- Download ---
     Application.ProcessMessages;
-    if not Checker.DownloadUpdate(UpdateInfo, NewCatpaqPath, NewEXEPath, NewDLLPath) then
+    if not Checker.DownloadUpdate(UpdateInfo, NewCatpaqPath, NewEXEPath) then
     begin
       MessageDlg(S('dlg_download_error', 'Download Error'),
         S('msg_download_fail', 'Failed to download or verify update files.') + sLineBreak + sLineBreak +
@@ -3402,7 +3694,7 @@ begin
 
     // --- Apply ---
     Application.ProcessMessages;
-    if not Checker.ApplyUpdate(NewCatpaqPath, NewEXEPath, NewDLLPath) then
+    if not Checker.ApplyUpdate(NewCatpaqPath, NewEXEPath) then
     begin
       MessageDlg(S('dlg_update_error', 'Update Error'),
         S('msg_apply_fail', 'Failed to apply update. Please try updating manually.'),
@@ -3428,7 +3720,7 @@ begin
 end;
 
 { Controlla la presenza di aggiornamenti all'avvio.
-  - Windows: se disponibile chiede conferma e scarica tutto (catpaq + zpaqfranz + dll).
+  - Windows: se disponibile chiede conferma e scarica tutto (catpaq + zpaqfranz).
   - Non-Windows: avvisa solo con un messaggio, non scarica nulla. }
 procedure TfrmMain.DoStartupUpdateCheck;
 var
@@ -3437,7 +3729,7 @@ var
   CurrentBuild: Integer;
   FileVerInfo: TFileVersionInfo;
   VerStr, Msg: string;
-  NewCatpaqPath, NewEXEPath, NewDLLPath: string;
+  NewCatpaqPath, NewEXEPath:string;
 begin
   { Legge la versione corrente dall'eseguibile }
   CurrentBuild := 0;
@@ -3452,7 +3744,6 @@ begin
   finally
     FileVerInfo.Free;
   end;
-
 
   AddLog('--- Startup update check: current build=' + IntToStr(CurrentBuild) + ' ---');
   Application.ProcessMessages;
@@ -3481,12 +3772,11 @@ begin
         'Files to download:' + LineEnding +
         '  catpaq.exe          %s  (%s)' + LineEnding +
         '  zpaqfranz.exe       %s  (%s)' + LineEnding +
-        '  zpaqfranz.dll       %s  (%s)' + LineEnding + LineEnding +
         'Update now?'),
       [UpdateInfo.CatpaqInfo.BuildNumber, CurrentBuild,
        FormatFileSize(UpdateInfo.CatpaqInfo.FileSize), UpdateInfo.CatpaqInfo.DateTime,
-       FormatFileSize(UpdateInfo.EXEInfo.FileSize),    UpdateInfo.EXEInfo.DateTime,
-       FormatFileSize(UpdateInfo.DLLInfo.FileSize),    UpdateInfo.DLLInfo.DateTime]);
+       FormatFileSize(UpdateInfo.EXEInfo.FileSize),    UpdateInfo.EXEInfo.DateTime
+       ]);
 
     if MessageDlg(
          S('dlg_startup_update', 'Update Available'), Msg,
@@ -3500,7 +3790,7 @@ begin
     PageControl1.ActivePage := TabLog;
     Application.ProcessMessages;
 
-    if not Checker.DownloadUpdate(UpdateInfo, NewCatpaqPath, NewEXEPath, NewDLLPath) then
+    if not Checker.DownloadUpdate(UpdateInfo, NewCatpaqPath, NewEXEPath) then
     begin
       MessageDlg(
         S('dlg_download_error', 'Download Error'),
@@ -3511,7 +3801,7 @@ begin
     end;
 
     Application.ProcessMessages;
-    if not Checker.ApplyUpdate(NewCatpaqPath, NewEXEPath, NewDLLPath) then
+    if not Checker.ApplyUpdate(NewCatpaqPath, NewEXEPath) then
     begin
       MessageDlg(
         S('dlg_update_error', 'Update Error'),
@@ -3630,9 +3920,14 @@ begin
   SetGlobalLang(FLang);
 
   // --- Log popup (runtime, riapplicato se lingua cambia) --------------------
-  if Assigned(mnuSaveLog) then mnuSaveLog.Caption := S('log_save', 'Save log to file...');
+  if Assigned(mnuSaveLog) then mnuSaveLog.Caption := S('log_save', 'Save system log to file...');
   if Assigned(mnuLogBack)  then mnuLogBack.Caption  := S('log_back',  '<= Back to Browse');
-  if Assigned(mnuLogClear) then mnuLogClear.Caption := S('log_clear', 'Clear log');
+  if Assigned(mnuLogClear) then mnuLogClear.Caption := S('log_clear', 'Clear system log');
+
+  // --- Archive log popup (runtime) -------------------------------------------
+  if Assigned(mnuSaveArchive) then mnuSaveArchive.Caption := S('archive_log_save', 'Save archive log to file...');
+  if Assigned(mnuArchiveLogBack) then mnuArchiveLogBack.Caption := S('log_back', '<= Back to Browse');
+  if Assigned(mnuClearArchive) then mnuClearArchive.Caption := S('archive_log_clear', 'Clear archive log');
 
   // --- Tab captions ---------------------------------------------------------
   TabArchive.Caption            := S('tab_archive',          'Versions');
@@ -3692,6 +3987,7 @@ begin
   mnuAddCreateFolder.Caption    := S('mnu_add_create_folder',      'Create folder');
   mnuAddProperties.Caption      := S('mnu_add_properties',         'Properties');
   mnuAddExtractToFolder.Caption := S('mnu_add_extract_to_folder',  'Extract ZPAQ archive to...');
+  mnuAddBrowseVersions.Caption  := S('mnu_add_browse_versions',    'Browse all versions...');
   mnuAddHash.Caption            := S('mnu_add_hash',               'Hash');
   mnuAddTestZpaq.Caption        := S('mnu_add_test',               'Test');
   mnuAddTestAllZpaq.Caption     := S('mnu_add_test_all',           'Test all');
@@ -3713,14 +4009,14 @@ begin
     VST.Header.Columns[4].Text := S('col_size', 'Size');
   end;
 
-  if lvAddFiles.Columns.Count >= 6 then
+  if lvAddFiles.Header.Columns.Count >= 6 then
   begin
-    lvAddFiles.Columns[0].Caption := S('col_name', 'Name');
-    lvAddFiles.Columns[1].Caption := S('col_size', 'Size');
-    lvAddFiles.Columns[2].Caption := S('col_modified', 'Modified');
-    lvAddFiles.Columns[3].Caption := S('col_created', 'Created');
-    lvAddFiles.Columns[4].Caption := S('col_attributes', 'Attributes');
-    lvAddFiles.Columns[5].Caption := S('col_extension', 'Ext');
+    lvAddFiles.Header.Columns[0].Text := S('col_name', 'Name');
+    lvAddFiles.Header.Columns[1].Text := S('col_size', 'Size');
+    lvAddFiles.Header.Columns[2].Text := S('col_modified', 'Modified');
+    lvAddFiles.Header.Columns[3].Text := S('col_created', 'Created');
+    lvAddFiles.Header.Columns[4].Text := S('col_attributes', 'Attributes');
+    lvAddFiles.Header.Columns[5].Text := S('col_extension', 'Ext');
   end;
 
   UpdateTimeMachineCaption;
@@ -3754,6 +4050,15 @@ procedure TfrmMain.InitAddTab;
 begin
   btnAddExtract.Visible := False;
   btnAddTest.Visible := False;
+
+  { Wire VST events for lvAddFiles (file browser) }
+  lvAddFiles.NodeDataSize := 0; { No extra per-node data - we use Node^.Index into FAddFilesList }
+  lvAddFiles.OnGetText := @lvAddFilesGetText;
+  lvAddFiles.OnInitNode := @lvAddFilesInitNode;
+  lvAddFiles.OnPaintText := @lvAddFilesPaintText;
+  lvAddFiles.OnHeaderClick := @lvAddFilesHeaderClick;
+  lvAddFiles.OnFocusChanged := @lvAddFilesFocusChanged;
+
   {$IFDEF WINDOWS}
   FCurrentAddPath := 'C:\';
   {$ELSE}
@@ -3798,6 +4103,16 @@ var NormalizedPath: string;
 begin
   NormalizedPath := IncludeTrailingPathDelimiter(APath);
   if not DirectoryExists(NormalizedPath) then begin AddLog('Directory not found: ' + NormalizedPath); Exit; end;
+
+  { Se siamo in archive browse mode, uscire automaticamente }
+  if FArchiveBrowseMode then
+  begin
+    FArchiveBrowseMode := False;
+    FArchiveBrowsePath := '';
+    lvAddFiles.Color := clWindow;
+    lvAddFiles.PopupMenu := PopupMenuAdd;
+  end;
+
   FCurrentAddPath := NormalizedPath;
   edtAddPath.Text := FCurrentAddPath;
   lblAddPath.Caption := 'Path: ' + FCurrentAddPath;
@@ -3818,45 +4133,78 @@ begin
 end;
 
 procedure TfrmMain.RefreshAddFilesList;
-var SR: TSearchRec; Item: TListItem; Count: Integer; FileItem: TFileExplorerItem; AttrStr: string;
+var SR: TSearchRec; Count: Integer; FileItem: TFileExplorerItem;
 begin
-  // Assicura sfondo bianco quando si mostra il filesystem
+  lvAddFiles.Clear;
+  SetLength(FAddFilesList, 0);
+  Count := 0;
+
+  { Riga ".." per salire di directory }
+  {$IFDEF WINDOWS} if Length(FCurrentAddPath) > 3 then {$ELSE} if FCurrentAddPath <> '/' then {$ENDIF}
+  begin
+    SetLength(FAddFilesList, Count + 1);
+    FAddFilesList[Count].Name := '..';
+    FAddFilesList[Count].FullPath := ExtractFilePath(ExcludeTrailingPathDelimiter(FCurrentAddPath));
+    FAddFilesList[Count].IsDirectory := True;
+    FAddFilesList[Count].Size := -1;
+    FAddFilesList[Count].Modified := 0;
+    FAddFilesList[Count].Created := 0;
+    FAddFilesList[Count].Attributes := 0;
+    Inc(Count);
+  end;
+
+  { Directories first }
+  if FindFirst(FCurrentAddPath + '*', faAnyFile, SR) = 0 then
+  begin
+    repeat
+      if (SR.Name = '.') or (SR.Name = '..') then Continue;
+      if (SR.Attr and faDirectory) <> 0 then
+      begin
+        SetLength(FAddFilesList, Count + 1);
+        FileItem.Name := SR.Name + '/';
+        FileItem.FullPath := FCurrentAddPath + SR.Name;
+        FileItem.IsDirectory := True;
+        FileItem.Size := -1;
+        FileItem.Modified := FileDateToDateTime(SR.Time);
+        FileItem.Created := FileItem.Modified;
+        FileItem.Attributes := SR.Attr;
+        FAddFilesList[Count] := FileItem;
+        Inc(Count);
+      end;
+    until FindNext(SR) <> 0;
+    SysUtils.FindClose(SR);
+  end;
+
+  { Then files }
+  if FindFirst(FCurrentAddPath + '*', faAnyFile, SR) = 0 then
+  begin
+    repeat
+      if (SR.Name = '.') or (SR.Name = '..') then Continue;
+      if (SR.Attr and faDirectory) = 0 then
+      begin
+        SetLength(FAddFilesList, Count + 1);
+        FileItem.Name := SR.Name;
+        FileItem.FullPath := FCurrentAddPath + SR.Name;
+        FileItem.IsDirectory := False;
+        FileItem.Size := SR.Size;
+        FileItem.Modified := FileDateToDateTime(SR.Time);
+        FileItem.Created := FileItem.Modified;
+        FileItem.Attributes := SR.Attr;
+        FAddFilesList[Count] := FileItem;
+        Inc(Count);
+      end;
+    until FindNext(SR) <> 0;
+    SysUtils.FindClose(SR);
+  end;
+
   lvAddFiles.Color := clWindow;
-  lvAddFiles.Items.BeginUpdate;
+  lvAddFiles.BeginUpdate;
   try
-    lvAddFiles.Items.Clear; SetLength(FAddFilesList, 0); Count := 0;
-    {$IFDEF WINDOWS} if Length(FCurrentAddPath) > 3 then {$ELSE} if FCurrentAddPath <> '/' then {$ENDIF}
-    begin
-      Item := lvAddFiles.Items.Add; Item.Caption := '..'; Item.SubItems.Add(''); Item.SubItems.Add(''); Item.SubItems.Add(''); Item.SubItems.Add('<DIR>'); Item.SubItems.Add('');
-      SetLength(FAddFilesList, Count + 1); FAddFilesList[Count].Name := '..'; FAddFilesList[Count].FullPath := ExtractFilePath(ExcludeTrailingPathDelimiter(FCurrentAddPath)); FAddFilesList[Count].IsDirectory := True; FAddFilesList[Count].Size := -1; Inc(Count);
-    end;
-    if FindFirst(FCurrentAddPath + '*', faAnyFile, SR) = 0 then
-    begin
-      repeat
-        if (SR.Name = '.') or (SR.Name = '..') then Continue;
-        if (SR.Attr and faDirectory) <> 0 then
-        begin
-          SetLength(FAddFilesList, Count + 1);
-          FileItem.Name := SR.Name + '/'; FileItem.FullPath := FCurrentAddPath + SR.Name; FileItem.IsDirectory := True; FileItem.Size := -1; FileItem.Modified := FileDateToDateTime(SR.Time); FileItem.Created := FileItem.Modified; FileItem.Attributes := SR.Attr; FAddFilesList[Count] := FileItem;
-          Item := lvAddFiles.Items.Add; Item.Caption := SR.Name + '/'; Item.SubItems.Add(''); Item.SubItems.Add(FormatDateTime('yyyy-mm-dd hh:nn', FileItem.Modified)); Item.SubItems.Add('');
-          AttrStr := '<DIR>'; if (SR.Attr and faReadOnly) <> 0 then AttrStr := AttrStr + 'R'; if (SR.Attr and faHidden) <> 0 then AttrStr := AttrStr + 'H'; if (SR.Attr and faSysFile) <> 0 then AttrStr := AttrStr + 'S'; Item.SubItems.Add(AttrStr); Item.SubItems.Add(''); Inc(Count);
-        end;
-      until FindNext(SR) <> 0; SysUtils.FindClose(SR);
-    end;
-    if FindFirst(FCurrentAddPath + '*', faAnyFile, SR) = 0 then
-    begin
-      repeat
-        if (SR.Name = '.') or (SR.Name = '..') then Continue;
-        if (SR.Attr and faDirectory) = 0 then
-        begin
-          SetLength(FAddFilesList, Count + 1);
-          FileItem.Name := SR.Name; FileItem.FullPath := FCurrentAddPath + SR.Name; FileItem.IsDirectory := False; FileItem.Size := SR.Size; FileItem.Modified := FileDateToDateTime(SR.Time); FileItem.Created := FileItem.Modified; FileItem.Attributes := SR.Attr; FAddFilesList[Count] := FileItem;
-          Item := lvAddFiles.Items.Add; Item.Caption := SR.Name; Item.SubItems.Add(FormatFileSize(SR.Size)); Item.SubItems.Add(FormatDateTime('yyyy-mm-dd hh:nn', FileItem.Modified)); Item.SubItems.Add('');
-          AttrStr := ''; if (SR.Attr and faReadOnly) <> 0 then AttrStr := AttrStr + 'R'; if (SR.Attr and faHidden) <> 0 then AttrStr := AttrStr + 'H'; if (SR.Attr and faSysFile) <> 0 then AttrStr := AttrStr + 'S'; if (SR.Attr and faArchive) <> 0 then AttrStr := AttrStr + 'A'; Item.SubItems.Add(AttrStr); Item.SubItems.Add(LowerCase(ExtractFileExt(SR.Name))); Inc(Count);
-        end;
-      until FindNext(SR) <> 0; SysUtils.FindClose(SR);
-    end;
-  finally lvAddFiles.Items.EndUpdate; end;
+    lvAddFiles.RootNodeCount := Count;
+  finally
+    lvAddFiles.EndUpdate;
+  end;
+
   FLvSortColumn := -1;
   FLvSortAscending := True;
   AddLog(Format('Loaded %d items from %s', [Count, FCurrentAddPath]));
@@ -3865,12 +4213,11 @@ end;
 
 { === Archive Browse Mode === }
 
-// Popola lvAddFiles confile dell'archivio (una sola versione).
-// Sostituisce temporaneamente la vista filesystem con i contenuti dell'archivio.
+// Popola lvAddFiles con file dell'archivio (una sola versione).
+// Ora usa FAddFilesList come data model e VST virtualizzato: istantaneo anche con milioni di file.
 procedure TfrmMain.ShowArchiveBrowse(const AArchivePath: string; const AData: TArchiveData);
 var
-  I: Integer;
-  Item: TListItem;
+  I, Count: Integer;
   FE: TArchiveFileEntry;
   FV: TFileVersion;
   DisplayName: string;
@@ -3878,60 +4225,86 @@ begin
   FArchiveBrowseMode := True;
   FArchiveBrowsePath := AArchivePath;
 
-  // Sfondo grigino per indicare modalità archivio
-  lvAddFiles.Color := $00F0F0F0;
-
-  // Cambia il popup menu del listview
-  lvAddFiles.PopupMenu := PopupMenuArchiveBrowse;
+  FileListDbgWrite('ShowArchiveBrowse: START files=' + IntToStr(Length(AData.Files)));
 
   // Aggiorna la label del path per indicare che siamo dentro un archivio
   edtAddPath.Text := '[ARCHIVE] ' + AArchivePath;
   lblAddPath.Caption := 'Archive: ' + ExtractFileName(AArchivePath);
 
-  lvAddFiles.Items.BeginUpdate;
-  try
-    lvAddFiles.Items.Clear;
+  // Cambia il popup menu
+  lvAddFiles.PopupMenu := PopupMenuArchiveBrowse;
 
-    // Prima riga: ".." per tornare al filesystem
-    Item := lvAddFiles.Items.Add;
-    Item.Caption := '..';
-    Item.SubItems.Add('');
-    Item.SubItems.Add('');
-    Item.SubItems.Add('');
-    Item.SubItems.Add('<UP>');
-    Item.SubItems.Add('');
+  { Popola FAddFilesList — unico data model }
+  SetLength(FAddFilesList, Length(AData.Files) + 1); { +1 per ".." }
+  Count := 0;
 
-    // File dell'archivio (prende l'ultima/unica versione di ogni file)
-    for I := 0 to High(AData.Files) do
+  { Prima riga: ".." per tornare al filesystem }
+  FAddFilesList[Count].Name := '..';
+  FAddFilesList[Count].FullPath := '';
+  FAddFilesList[Count].IsDirectory := True;
+  FAddFilesList[Count].Size := -1;
+  FAddFilesList[Count].Modified := 0;
+  FAddFilesList[Count].Created := 0;
+  FAddFilesList[Count].Attributes := 0;
+  Inc(Count);
+
+  { File dell'archivio (prende l'ultima/unica versione di ogni file) }
+  for I := 0 to High(AData.Files) do
+  begin
+    FE := AData.Files[I];
+    if Length(FE.Versions) = 0 then Continue;
+    FV := FE.Versions[High(FE.Versions)];
+    if FV.IsDeleted then Continue;
+
+    DisplayName := ExtractFileName(ExcludeTrailingPathDelimiter(FE.FileName));
+    if DisplayName = '' then DisplayName := FE.FileName;
+
+    FAddFilesList[Count].Name := DisplayName;
+    FAddFilesList[Count].FullPath := FE.FileName;
+    FAddFilesList[Count].IsDirectory := False;
+    FAddFilesList[Count].Size := FV.Size;
+    FAddFilesList[Count].Modified := 0;
+    if (FV.DateStr <> 'DELETED') and (FV.DateStr <> '') then
     begin
-      FE := AData.Files[I];
-      if Length(FE.Versions) = 0 then Continue;
-      FV := FE.Versions[High(FE.Versions)];
-      if FV.IsDeleted then Continue;  // non mostrare file cancellati
-
-      // Mostra solo il nome del file (non il path completo)
-      DisplayName := ExtractFileName(ExcludeTrailingPathDelimiter(FE.FileName));
-      if DisplayName = '' then DisplayName := FE.FileName;
-
-      Item := lvAddFiles.Items.Add;
-      Item.Caption := DisplayName;
-      Item.SubItems.Add(FormatFileSize(FV.Size));
-      Item.SubItems.Add(FV.DateStr);
-      Item.SubItems.Add('');
-      Item.SubItems.Add('');
-      Item.SubItems.Add(LowerCase(ExtractFileExt(DisplayName)));
-      // Salviamo il path completo nel Data del ListItem non disponibile direttamente,
-      // usiamo FAddFilesList per accesso rapido
+      { zpaqfranz date format: "DD/MM/YYYY HH:NN:SS"
+        Parsing manuale per evitare dipendenza dal locale di Windows }
+      try
+        if Length(FV.DateStr) >= 19 then
+          FAddFilesList[Count].Modified := EncodeDate(
+            StrToIntDef(Copy(FV.DateStr, 7, 4), 2000),
+            StrToIntDef(Copy(FV.DateStr, 4, 2), 1),
+            StrToIntDef(Copy(FV.DateStr, 1, 2), 1)) +
+          EncodeTime(
+            StrToIntDef(Copy(FV.DateStr, 12, 2), 0),
+            StrToIntDef(Copy(FV.DateStr, 15, 2), 0),
+            StrToIntDef(Copy(FV.DateStr, 18, 2), 0), 0);
+      except
+        FAddFilesList[Count].Modified := 0;
+      end;
     end;
-  finally
-    lvAddFiles.Items.EndUpdate;
+    FAddFilesList[Count].Created := 0;
+    FAddFilesList[Count].Attributes := 0;
+    Inc(Count);
   end;
+  SetLength(FAddFilesList, Count);
+
+  { Imposta il VST — istantaneo anche con milioni di righe }
+  lvAddFiles.Color := $00F0F0F0;
+  lvAddFiles.BeginUpdate;
+  try
+    lvAddFiles.Clear;
+    lvAddFiles.RootNodeCount := Count;
+  finally
+    lvAddFiles.EndUpdate;
+  end;
+
+  FileListDbgWrite('ShowArchiveBrowse: END items=' + IntToStr(Count));
 
   // Rimani sulla tab Add (non cambiare tab)
   PageControl1.ActivePage := TabAdd;
 
-  AddLog(Format('Archive browse mode: %d files in %s',
-    [lvAddFiles.Items.Count - 1, ExtractFileName(AArchivePath)]));
+  AddArchiveLog(Format('Archive browse mode: %d files in %s',
+    [Count - 1, ExtractFileName(AArchivePath)]));
 
   UpdateZpaqButtons;
 end;
@@ -3958,9 +4331,11 @@ end;
 procedure TfrmMain.PopupMenuArchiveBrowsePopup(Sender: TObject);
 var
   HasSel: Boolean;
+  Idx: Integer;
 begin
-  HasSel := (lvAddFiles.SelCount > 0) and
-    ((lvAddFiles.Selected = nil) or (lvAddFiles.Selected.Caption <> '..'));
+  Idx := LvGetFocusedIndex(lvAddFiles);
+  HasSel := (LvSelectedCount(lvAddFiles) > 0) and
+    ((Idx < 0) or (Idx >= Length(FAddFilesList)) or (FAddFilesList[Idx].Name <> '..'));
   mnuArchiveExtract1.Enabled    := HasSel;
   mnuArchiveExtractAll.Enabled  := True;  // sempre disponibile
   mnuArchiveExtract2.Enabled    := HasSel;
@@ -3978,19 +4353,22 @@ procedure TfrmMain.mnuArchiveExtract1Click(Sender: TObject);
 var
   Dialog: TfrmExtract;
   SelNames: TStringList;
-  I, J: Integer;
+  J, Idx: Integer;
   SelName, SelFullPath: string;
+  N: PVirtualNode;
 begin
   if not FArchiveBrowseMode then Exit;
 
   SelNames := TStringList.Create;
   try
     { Raccoglie tutti gli item selezionati (escluso "..") }
-    for I := 0 to lvAddFiles.Items.Count - 1 do
+    N := lvAddFiles.GetFirstSelected;
+    while N <> nil do
     begin
-      if lvAddFiles.Items[I].Selected and (lvAddFiles.Items[I].Caption <> '..') then
+      Idx := N^.Index;
+      if (Idx >= 0) and (Idx < Length(FAddFilesList)) and (FAddFilesList[Idx].Name <> '..') then
       begin
-        SelName := lvAddFiles.Items[I].Caption;
+        SelName := FAddFilesList[Idx].Name;
         { Cerca il path completo nell'archivio data }
         SelFullPath := SelName;
         for J := 0 to High(FArchiveData.Files) do
@@ -4002,6 +4380,7 @@ begin
           end;
         SelNames.Add(SelFullPath);
       end;
+      N := lvAddFiles.GetNextSelected(N);
     end;
 
     if SelNames.Count = 0 then Exit;
@@ -4014,7 +4393,7 @@ begin
       else
         Dialog.SetExtractionParamsMulti(FArchiveBrowsePath, SelNames,
                                         FPasswordKey, FPasswordFranzen);
-      Dialog.SetDLLPath(FBridge.DLLPath);
+      Dialog.SetExternalPath(FBridge.ExternalPath);
       Dialog.ShowModal;
       if Dialog.GetDestPath <> '' then
         AddLog('Archive browse extraction destination: ' + Dialog.GetDestPath);
@@ -4036,7 +4415,7 @@ begin
   Dialog := TfrmExtract.Create(Self);
   try
     Dialog.SetExtractionParamsAll(FArchiveBrowsePath, FPasswordKey, FPasswordFranzen);
-    Dialog.SetDLLPath(FBridge.DLLPath);
+    Dialog.SetExternalPath(FBridge.ExternalPath);
     Dialog.ShowModal;
     if Dialog.GetDestPath <> '' then
       AddLog('Archive browse extract-all destination: ' + Dialog.GetDestPath);
@@ -4051,38 +4430,51 @@ begin
 end;
 
 procedure TfrmMain.ApplyAddFilter(const AFilter: string);
-var I: Integer; SearchText, ItemName, ItemNameNoSlash: string; ExactMatch, Match, CaseSensitive: Boolean; MatchCount: Integer; Item: TListItem;
+var I: Integer; SearchText, ItemName, ItemNameNoSlash: string; ExactMatch, Match, CaseSensitive: Boolean; MatchCount: Integer; N: PVirtualNode;
 begin
   if Trim(AFilter) = '' then begin lvAddFiles.ClearSelection; Exit; end;
   ExactMatch := False; SearchText := Trim(AFilter); CaseSensitive := IsCaseSensitiveFS;
   if (Length(SearchText) > 0) and (SearchText[1] = '=') then begin ExactMatch := True; SearchText := Copy(SearchText, 2, Length(SearchText)); end;
   MatchCount := 0; lvAddFiles.ClearSelection;
-  for I := 0 to lvAddFiles.Items.Count - 1 do
+  N := lvAddFiles.GetFirst;
+  I := 0;
+  while N <> nil do
   begin
-    Item := lvAddFiles.Items[I]; ItemName := Item.Caption; if ItemName = '..' then Continue;
-    ItemNameNoSlash := ItemName; if (Length(ItemNameNoSlash) > 0) and (ItemNameNoSlash[Length(ItemNameNoSlash)] = '/') then ItemNameNoSlash := Copy(ItemNameNoSlash, 1, Length(ItemNameNoSlash) - 1);
-    if ExactMatch then begin if CaseSensitive then Match := (ItemNameNoSlash = SearchText) else Match := (LowerCase(ItemNameNoSlash) = LowerCase(SearchText)); end
-    else begin if CaseSensitive then Match := (Pos(SearchText, ItemNameNoSlash) > 0) else Match := (Pos(LowerCase(SearchText), LowerCase(ItemNameNoSlash)) > 0); end;
-    if Match then begin Item.Selected := True; Inc(MatchCount); if MatchCount = 1 then Item.Focused := True; end;
+    if (I >= 0) and (I < Length(FAddFilesList)) then
+    begin
+      ItemName := FAddFilesList[I].Name;
+      if ItemName <> '..' then
+      begin
+        ItemNameNoSlash := ItemName;
+        if (Length(ItemNameNoSlash) > 0) and (ItemNameNoSlash[Length(ItemNameNoSlash)] = '/') then ItemNameNoSlash := Copy(ItemNameNoSlash, 1, Length(ItemNameNoSlash) - 1);
+        if ExactMatch then begin if CaseSensitive then Match := (ItemNameNoSlash = SearchText) else Match := (LowerCase(ItemNameNoSlash) = LowerCase(SearchText)); end
+        else begin if CaseSensitive then Match := (Pos(SearchText, ItemNameNoSlash) > 0) else Match := (Pos(LowerCase(SearchText), LowerCase(ItemNameNoSlash)) > 0); end;
+        if Match then begin lvAddFiles.Selected[N] := True; Inc(MatchCount); if MatchCount = 1 then lvAddFiles.FocusedNode := N; end;
+      end;
+    end;
+    N := lvAddFiles.GetNext(N);
+    Inc(I);
   end;
   lvAddFiles.Invalidate; if lvAddFiles.CanFocus then lvAddFiles.SetFocus;
   AddLog(Format('Filter "%s": %d item(s) selected', [AFilter, MatchCount]));
 end;
 
 function TfrmMain.BuildSelectedFilesString: string;
-var I: Integer; FilePath: string;
+var N: PVirtualNode; Idx: Integer; FilePath: string;
 begin
   Result := '';
-  for I := 0 to lvAddFiles.Items.Count - 1 do
+  N := lvAddFiles.GetFirstSelected;
+  while N <> nil do
   begin
-    if lvAddFiles.Items[I].Selected then
+    Idx := N^.Index;
+    if (Idx >= 0) and (Idx < Length(FAddFilesList)) and (FAddFilesList[Idx].Name <> '..') then
     begin
-      if lvAddFiles.Items[I].Caption = '..' then Continue;
-      FilePath := FCurrentAddPath + lvAddFiles.Items[I].Caption;
+      FilePath := FCurrentAddPath + FAddFilesList[Idx].Name;
       if (Length(FilePath) > 0) and (FilePath[Length(FilePath)] = '/') then FilePath := Copy(FilePath, 1, Length(FilePath) - 1);
       if Result <> '' then Result := Result + ' ';
       Result := Result + '"' + FilePath + '"';
     end;
+    N := lvAddFiles.GetNextSelected(N);
   end;
 end;
 
@@ -4090,10 +4482,10 @@ function TfrmMain.BuildAllFilesString: string;
 var I: Integer; FilePath: string;
 begin
   Result := '';
-  for I := 0 to lvAddFiles.Items.Count - 1 do
+  for I := 0 to High(FAddFilesList) do
   begin
-    if lvAddFiles.Items[I].Caption = '..' then Continue;
-    FilePath := FCurrentAddPath + lvAddFiles.Items[I].Caption;
+    if FAddFilesList[I].Name = '..' then Continue;
+    FilePath := FCurrentAddPath + FAddFilesList[I].Name;
     if (Length(FilePath) > 0) and (FilePath[Length(FilePath)] = '/') then FilePath := Copy(FilePath, 1, Length(FilePath) - 1);
     if Result <> '' then Result := Result + ' ';
     Result := Result + '"' + FilePath + '"';
@@ -4101,99 +4493,107 @@ begin
 end;
 
 function TfrmMain.HasOnlyFoldersSelected: Boolean;
-var I: Integer; HasSelection: Boolean;
+var N: PVirtualNode; Idx: Integer; HasSelection: Boolean;
 begin
   Result := True; HasSelection := False;
-  for I := 0 to lvAddFiles.Items.Count - 1 do
+  N := lvAddFiles.GetFirstSelected;
+  while N <> nil do
   begin
-    if lvAddFiles.Items[I].Selected then
+    Idx := N^.Index;
+    if (Idx >= 0) and (Idx < Length(FAddFilesList)) and (FAddFilesList[Idx].Name <> '..') then
     begin
-      if lvAddFiles.Items[I].Caption = '..' then Continue;
       HasSelection := True;
-      if not ((Length(lvAddFiles.Items[I].Caption) > 0) and (lvAddFiles.Items[I].Caption[Length(lvAddFiles.Items[I].Caption)] = '/')) then begin Result := False; Exit; end;
+      if not FAddFilesList[Idx].IsDirectory then begin Result := False; Exit; end;
     end;
+    N := lvAddFiles.GetNextSelected(N);
   end;
   if not HasSelection then Result := False;
 end;
 
 procedure TfrmMain.OpenSelectedFile;
-var I: Integer; FilePath, FileExt: string;
+var Idx: Integer; FilePath, FileExt: string;
 begin
-  // (2) Congela il doppio click se un caricamento archivio è già in corso
   if FLoadingArchive then Exit;
+  Idx := LvGetFocusedIndex(lvAddFiles);
+  if (Idx < 0) or (Idx >= Length(FAddFilesList)) then Exit;
 
-  for I := 0 to lvAddFiles.Items.Count - 1 do
+  if FAddFilesList[Idx].Name = '..' then
   begin
-    if lvAddFiles.Items[I].Selected then
+    if FArchiveBrowseMode then ExitArchiveBrowseMode
+    else btnAddUpClick(nil);
+    Exit;
+  end;
+
+  if FArchiveBrowseMode then
+  begin
+    if FLoadingArchive then Exit;
+    { In browse mode: se è un .zpaq, esci dal browse e aprilo }
+    FilePath := FAddFilesList[Idx].Name;
+    FileExt  := LowerCase(ExtractFileExt(FilePath));
+    if (FileExt = '.zpaq') or (Pos('.zpaq.franzen', LowerCase(FilePath)) > 0) then
     begin
-      if lvAddFiles.Items[I].Caption = '..' then
+      { Serve il path completo nel filesystem — cerca il file nella directory corrente }
+      FilePath := FCurrentAddPath + FAddFilesList[Idx].Name;
+      if FileExists(FilePath) then
       begin
-        // In archive browse mode ".." torna al filesystem,
-        // altrimenti sale di directory come prima
-        if FArchiveBrowseMode then
-          ExitArchiveBrowseMode
-        else
-          btnAddUpClick(nil);
-        Exit;
-      end;
-      if FArchiveBrowseMode then
-      begin
-        // In browse mode ignora il doppio click se già in caricamento
-        if FLoadingArchive then Exit;
-        AddLog('Archive browse: selected "' + lvAddFiles.Items[I].Caption + '"');
-        Exit;
-      end;
-      if (I < Length(FAddFilesList)) and FAddFilesList[I].IsDirectory then
-      begin
-        NavigateToPath(FAddFilesList[I].FullPath);
-        Exit;
+        ExitArchiveBrowseMode;
+        OpenZpaqFile(FilePath);
       end
       else
-      begin
-        FilePath := FCurrentAddPath + lvAddFiles.Items[I].Caption;
-        FileExt  := LowerCase(ExtractFileExt(FilePath));
-        // Apri zpaq solo per .zpaq o .zpaq.franzen
-        if (FileExt = '.zpaq') or (Pos('.zpaq.franzen', LowerCase(FilePath)) > 0) then
-        begin
-          OpenZpaqFile(FilePath);
-          Exit;
-        end;
-        // Tutti gli altri file: apri con l'applicazione predefinita del sistema
-        {$IFDEF WINDOWS}
-        ShellExecute(0, 'open', PChar(FilePath), nil, nil, SW_SHOWNORMAL);
-        {$ELSE}
-        OpenDocument(FilePath);
-        {$ENDIF}
-        Exit;
-      end;
-    end;
+        AddLog('Archive browse: .zpaq not found on disk: ' + FilePath);
+    end
+    else
+      AddLog('Archive browse: selected "' + FAddFilesList[Idx].Name + '"');
+    Exit;
   end;
+
+  if FAddFilesList[Idx].IsDirectory then
+  begin
+    NavigateToPath(FAddFilesList[Idx].FullPath);
+    Exit;
+  end;
+
+  FilePath := FCurrentAddPath + FAddFilesList[Idx].Name;
+  FileExt  := LowerCase(ExtractFileExt(FilePath));
+  if (FileExt = '.zpaq') or (Pos('.zpaq.franzen', LowerCase(FilePath)) > 0) then
+  begin
+    OpenZpaqFile(FilePath);
+    Exit;
+  end;
+  {$IFDEF WINDOWS}
+  ShellExecute(0, 'open', PChar(FilePath), nil, nil, SW_SHOWNORMAL);
+  {$ELSE}
+  OpenDocument(FilePath);
+  {$ENDIF}
 end;
 
 procedure TfrmMain.OpenZpaqFile(const AFilePath: string);
 begin
   FLoadingArchive    := True;
   FLogProgressLineIndex := -1;
-  FDLLAbortRequested := False;
+  FFileListAbortRequested := False;
   FArchiveBrowsePath := AFilePath;
+  // Determina se siamo nella tab Browse: in tal caso mostra pnlLoading inline
+  FLoadFromBrowseTab := (PageControl1.ActivePage = TabAdd);
   SetLoadingState(True);
   DoLoadArchive(AFilePath);
-  // NON cambiamo tab qui: OnBridgeComplete decide in base al conteggio versioni
+  // NON cambiamo tab qui: OnFileListComplete decide in base al conteggio versioni
 end;
 
 procedure TfrmMain.OpenInExplorer;
-var I: Integer; FilePath: string;
+var Idx: Integer; FilePath: string;
 begin
-  for I := 0 to lvAddFiles.Items.Count - 1 do
+  Idx := LvGetFocusedIndex(lvAddFiles);
+  if (Idx >= 0) and (Idx < Length(FAddFilesList)) then
   begin
-    if lvAddFiles.Items[I].Selected then
-    begin
-      if lvAddFiles.Items[I].Caption = '..' then FilePath := ExtractFilePath(ExcludeTrailingPathDelimiter(FCurrentAddPath))
-      else if (I < Length(FAddFilesList)) and FAddFilesList[I].IsDirectory then FilePath := FAddFilesList[I].FullPath
-      else FilePath := FCurrentAddPath;
-      {$IFDEF WINDOWS} ShellExecute(0, 'explore', PChar(FilePath), nil, nil, SW_SHOWNORMAL); {$ELSE} OpenDocument(FilePath); {$ENDIF}
-      Exit;
-    end;
+    if FAddFilesList[Idx].Name = '..' then
+      FilePath := ExtractFilePath(ExcludeTrailingPathDelimiter(FCurrentAddPath))
+    else if FAddFilesList[Idx].IsDirectory then
+      FilePath := FAddFilesList[Idx].FullPath
+    else
+      FilePath := FCurrentAddPath;
+    {$IFDEF WINDOWS} ShellExecute(0, 'explore', PChar(FilePath), nil, nil, SW_SHOWNORMAL); {$ELSE} OpenDocument(FilePath); {$ENDIF}
+    Exit;
   end;
   {$IFDEF WINDOWS} ShellExecute(0, 'explore', PChar(FCurrentAddPath), nil, nil, SW_SHOWNORMAL); {$ELSE} OpenDocument(FCurrentAddPath); {$ENDIF}
 end;
@@ -4248,16 +4648,19 @@ procedure TfrmMain.btnAddRefreshClick(Sender: TObject); begin RefreshAddFilesLis
 procedure TfrmMain.cmbAddDrivesChange(Sender: TObject); begin if cmbAddDrives.ItemIndex >= 0 then NavigateToPath(cmbAddDrives.Items[cmbAddDrives.ItemIndex]); end;
 procedure TfrmMain.lvAddFilesDblClick(Sender: TObject); begin OpenSelectedFile; end;
 
-procedure TfrmMain.lvAddFilesColumnClick(Sender: TObject; Column: TListColumn);
+procedure TfrmMain.lvAddFilesHeaderClick(Sender: TVTHeader; HitInfo: TVTHeaderHitInfo);
 begin
-  if Column = nil then Exit;
-  if FLvSortColumn = Column.Index then
+  if HitInfo.Button <> mbLeft then Exit;
+  if FLvSortColumn = HitInfo.Column then
     FLvSortAscending := not FLvSortAscending
   else
   begin
-    FLvSortColumn := Column.Index;
+    FLvSortColumn := HitInfo.Column;
     FLvSortAscending := True;
   end;
+  Sender.SortColumn := FLvSortColumn;
+  if FLvSortAscending then Sender.SortDirection := sdAscending
+  else Sender.SortDirection := sdDescending;
   SortLvAddFiles(FLvSortColumn, FLvSortAscending);
 end;
 
@@ -4288,68 +4691,83 @@ begin
   end;
 end;
 
-procedure TfrmMain.lvAddFilesAdvancedCustomDrawItem(Sender: TCustomListView;
-  Item: TListItem; State: TCustomDrawState; Stage: TCustomDrawStage;
-  var DefaultDraw: Boolean);
-var
-  ItemName, LowerName: string;
-  IsZpaq, IsFolder: Boolean;
-  FgColor, BgColor: TColor;
-  IsSelected: Boolean;
-  R: TRect;
-  I, ColX, ColW: Integer;
-  ColText: string;
-  LV: TListView;
+{ === VST handlers for lvAddFiles === }
+
+procedure TfrmMain.lvAddFilesGetText(Sender: TBaseVirtualTree; Node: PVirtualNode;
+  Column: TColumnIndex; TextType: TVSTTextType; var CellText: String);
+var Idx: Integer; FI: TFileExplorerItem; AttrStr: string;
 begin
-  if Item = nil then Exit;
-  ItemName  := Item.Caption;
+  CellText := '';
+  Idx := Node^.Index;
+  if (Idx < 0) or (Idx >= Length(FAddFilesList)) then Exit;
+  FI := FAddFilesList[Idx];
+  case Column of
+    0: CellText := FI.Name;
+    1: if FI.IsDirectory then CellText := '' else if FI.Size >= 0 then CellText := FormatFileSize(FI.Size);
+    2: if FI.Modified > 0 then
+       begin
+         if FArchiveBrowseMode then
+           { In archive mode, the date string comes from zpaqfranz and may be stored differently }
+           CellText := FormatDateTime('yyyy-mm-dd hh:nn:ss', FI.Modified)
+         else
+           CellText := FormatDateTime('yyyy-mm-dd hh:nn', FI.Modified);
+       end;
+    3: if FI.Created > 0 then CellText := FormatDateTime('yyyy-mm-dd hh:nn', FI.Created);
+    4: begin
+         AttrStr := '';
+         if FI.IsDirectory then AttrStr := '<DIR>';
+         if (FI.Attributes and faReadOnly) <> 0 then AttrStr := AttrStr + 'R';
+         {$IFDEF WINDOWS}
+         if (FI.Attributes and faHidden) <> 0 then AttrStr := AttrStr + 'H';
+         if (FI.Attributes and faSysFile) <> 0 then AttrStr := AttrStr + 'S';
+         {$ENDIF}
+         if (FI.Attributes and faArchive) <> 0 then AttrStr := AttrStr + 'A';
+         CellText := AttrStr;
+       end;
+    5: if not FI.IsDirectory then CellText := LowerCase(ExtractFileExt(FI.Name));
+  end;
+end;
+
+procedure TfrmMain.lvAddFilesInitNode(Sender: TBaseVirtualTree; ParentNode,
+  Node: PVirtualNode; var InitialStates: TVirtualNodeInitStates);
+begin
+  { No children, flat list }
+end;
+
+procedure TfrmMain.lvAddFilesPaintText(Sender: TBaseVirtualTree;
+  const TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+  TextType: TVSTTextType);
+var Idx: Integer; ItemName, LowerName: string; IsFolder, IsZpaq: Boolean;
+begin
+  Idx := Node^.Index;
+  if (Idx < 0) or (Idx >= Length(FAddFilesList)) then Exit;
+  ItemName  := FAddFilesList[Idx].Name;
   LowerName := LowerCase(ItemName);
-  IsFolder  := ((Length(ItemName) > 0) and (ItemName[Length(ItemName)] = '/'))
-               or (ItemName = '..');
+  IsFolder  := FAddFilesList[Idx].IsDirectory or (ItemName = '..');
   IsZpaq    := (not IsFolder) and
                ( (ExtractFileExt(LowerName) = '.zpaq') or
-                 (Copy(LowerName, Length(LowerName) - 12, 13) = '.zpaq.franzen') );
-  // File normale: lascia disegnare al sistema, resetta colori
-  if (not IsFolder) and (not IsZpaq) then
+                 (Pos('.zpaq.franzen', LowerName) > 0) );
+  if IsFolder then
   begin
-    DefaultDraw := True;
-    if Stage = cdPrePaint then
-    begin
-      Sender.Canvas.Font.Color := clWindowText;
-      Sender.Canvas.Font.Style := [];
-    end;
-    Exit;
-  end;
-  if Stage <> cdPrePaint then begin DefaultDraw := False; Exit; end;
-  DefaultDraw := False;
-  LV         := Sender as TListView;
-  IsSelected := cdsSelected in State;
-  // Eredita font del listview (nome + dimensione) per coerenza visiva
-  Sender.Canvas.Font.Assign(LV.Font);
-  if IsFolder then begin FgColor := $00007000; Sender.Canvas.Font.Style := [fsBold]; end
-  else             begin FgColor := clRed;      Sender.Canvas.Font.Style := [fsBold]; end;
-  if IsSelected then begin BgColor := clHighlight; FgColor := clHighlightText; end
-  else BgColor := Sender.Color;
-  R := Item.DisplayRect(drBounds);
-  Sender.Canvas.Brush.Color := BgColor;
-  Sender.Canvas.FillRect(R);
-  Sender.Canvas.Font.Color := FgColor;
-  // Colonna 0
-  ColX := R.Left + 2;
-  if LV.Columns.Count > 0 then ColW := LV.Columns[0].Width
-  else ColW := R.Right - R.Left;
-  Sender.Canvas.TextOut(ColX, R.Top + 2, ItemName);
-  // Colonne successive (SubItems)
-  ColX := R.Left + ColW;
-  for I := 0 to Item.SubItems.Count - 1 do
+    TargetCanvas.Font.Color := $00007000; { dark green }
+    TargetCanvas.Font.Style := [fsBold];
+  end
+  else if IsZpaq then
   begin
-    if I + 1 < LV.Columns.Count then ColW := LV.Columns[I + 1].Width
-    else ColW := 80;
-    ColText := Item.SubItems[I];
-    if ColText <> '' then
-      Sender.Canvas.TextOut(ColX + 2, R.Top + 2, ColText);
-    ColX := ColX + ColW;
+    TargetCanvas.Font.Color := clRed;
+    TargetCanvas.Font.Style := [fsBold];
+  end
+  else
+  begin
+    TargetCanvas.Font.Color := clWindowText;
+    TargetCanvas.Font.Style := [];
   end;
+end;
+
+procedure TfrmMain.lvAddFilesFocusChanged(Sender: TBaseVirtualTree;
+  Node: PVirtualNode; Column: TColumnIndex);
+begin
+  UpdateZpaqButtons;
 end;
 
 function TfrmMain.IsZpaqFile(const AFileName: string): Boolean;
@@ -4361,9 +4779,9 @@ end;
 
 { Restituisce il path dell'archivio .zpaq su cui operare.
   - In archive browse mode: è l'archivio correntemente aperto (FArchiveBrowsePath).
-  - In filesystem normale: è il file .zpaq selezionato nel listview. }
+  - In filesystem normale: è il file .zpaq selezionato nel VST. }
 function TfrmMain.GetSelectedZpaqPath: string;
-var FilePath: string;
+var Idx: Integer; FilePath: string;
 begin
   Result := '';
   if FArchiveBrowseMode then
@@ -4371,9 +4789,11 @@ begin
     Result := FArchiveBrowsePath;
     Exit;
   end;
-  if (lvAddFiles.SelCount <> 1) or (lvAddFiles.Selected = nil) then Exit;
-  if lvAddFiles.Selected.Caption = '..' then Exit;
-  FilePath := FCurrentAddPath + lvAddFiles.Selected.Caption;
+  if LvSelectedCount(lvAddFiles) <> 1 then Exit;
+  Idx := LvGetFocusedIndex(lvAddFiles);
+  if (Idx < 0) or (Idx >= Length(FAddFilesList)) then Exit;
+  if FAddFilesList[Idx].Name = '..' then Exit;
+  FilePath := FCurrentAddPath + FAddFilesList[Idx].Name;
   if (Length(FilePath) > 0) and (FilePath[Length(FilePath)] = PathDelim) then
     FilePath := Copy(FilePath, 1, Length(FilePath) - 1);
   if Pos('.zpaq', LowerCase(FilePath)) > 0 then
@@ -4381,25 +4801,25 @@ begin
 end;
 
 procedure TfrmMain.UpdateZpaqButtons;
-var SelZpaq: Boolean; LN: string;
+var SelZpaq: Boolean; Idx: Integer; LN: string;
 begin
   if FArchiveBrowseMode then
   begin
-    { Dentro un archivio: Add nascosto, Extract e Test sempre visibili }
     btnAddAdd.Visible     := False;
     btnAddExtract.Visible := True;
     btnAddTest.Visible    := True;
   end
   else
   begin
-    { Filesystem normale: Add sempre visibile.
-      Extract e Test compaiono IN AGGIUNTA se è selezionato un .zpaq,
-      ma Add non sparisce mai. }
     SelZpaq := False;
-    if (lvAddFiles.SelCount = 1) and (lvAddFiles.Selected <> nil) then
+    if LvSelectedCount(lvAddFiles) = 1 then
     begin
-      LN := LowerCase(lvAddFiles.Selected.Caption);
-      SelZpaq := (Pos('.zpaq', LN) > 0);
+      Idx := LvGetFocusedIndex(lvAddFiles);
+      if (Idx >= 0) and (Idx < Length(FAddFilesList)) then
+      begin
+        LN := LowerCase(FAddFilesList[Idx].Name);
+        SelZpaq := (Pos('.zpaq', LN) > 0);
+      end;
     end;
     btnAddAdd.Visible     := True;
     btnAddExtract.Visible := SelZpaq;
@@ -4407,41 +4827,49 @@ begin
   end;
 end;
 
-procedure TfrmMain.lvAddFilesSelectItem(Sender: TObject; Item: TListItem; Selected: Boolean);
-begin
-  UpdateZpaqButtons;
-end;
-
 procedure TfrmMain.PopupMenuAddPopup(Sender: TObject);
-var HasSelection, OnlyFolders, SelZpaq: Boolean; LN: string;
+var HasSelection, OnlyFolders, SelZpaq: Boolean; LN: string; Idx, SelCnt: Integer;
 begin
-  HasSelection := lvAddFiles.SelCount > 0; OnlyFolders := HasOnlyFoldersSelected;
+  SelCnt := LvSelectedCount(lvAddFiles);
+  HasSelection := SelCnt > 0;
+  OnlyFolders := HasOnlyFoldersSelected;
   if HasSelection then begin if OnlyFolders then mnuAddFilesToZpaq.Caption := S('mnu_add_folders_to_zpaq', 'Add folders to ZPAQ...') else mnuAddFilesToZpaq.Caption := S('mnu_add_files_to_zpaq', 'Add files to ZPAQ...'); end
   else mnuAddFilesToZpaq.Caption := S('mnu_add_files_to_zpaq', 'Add files to ZPAQ...');
   mnuAddFilesToZpaq.Enabled := HasSelection; mnuAddOpen.Enabled := HasSelection; mnuAddOpenInExplorer.Enabled := True;
   SelZpaq := False;
-  if (lvAddFiles.SelCount = 1) and (lvAddFiles.Selected <> nil) then begin LN := LowerCase(lvAddFiles.Selected.Caption); SelZpaq := (Pos('.zpaq', LN) > 0); end;
+  if SelCnt = 1 then
+  begin
+    Idx := LvGetFocusedIndex(lvAddFiles);
+    if (Idx >= 0) and (Idx < Length(FAddFilesList)) then begin LN := LowerCase(FAddFilesList[Idx].Name); SelZpaq := (Pos('.zpaq', LN) > 0); end;
+  end;
   mnuAddExtractToFolder.Enabled := SelZpaq; mnuAddExtractToFolder.Visible := True;
+  mnuAddBrowseVersions.Enabled  := SelZpaq; mnuAddBrowseVersions.Visible  := True;
   mnuAddTestZpaq.Enabled := SelZpaq; mnuAddTestZpaq.Visible := True;
   mnuAddTestAllZpaq.Enabled := SelZpaq; mnuAddTestAllZpaq.Visible := True;
-  mnuAddRename.Enabled := (lvAddFiles.SelCount = 1) and (lvAddFiles.Selected <> nil) and (lvAddFiles.Selected.Caption <> '..');
-  mnuAddDelete.Enabled := HasSelection and not ((lvAddFiles.SelCount = 1) and (lvAddFiles.Selected <> nil) and (lvAddFiles.Selected.Caption = '..'));
+  Idx := LvGetFocusedIndex(lvAddFiles);
+  mnuAddRename.Enabled := (SelCnt = 1) and (Idx >= 0) and (Idx < Length(FAddFilesList)) and (FAddFilesList[Idx].Name <> '..');
+  mnuAddDelete.Enabled := HasSelection and not ((SelCnt = 1) and (Idx >= 0) and (Idx < Length(FAddFilesList)) and (FAddFilesList[Idx].Name = '..'));
   mnuAddProperties.Enabled := HasSelection;
   mnuAddHash.Enabled       := HasSelection and not FArchiveBrowseMode;
 end;
 
 procedure TfrmMain.mnuAddFilesToZpaqClick(Sender: TObject);
-var FilesList: TStringList; I: Integer; FilePath: string;
+var FilesList: TStringList; N: PVirtualNode; Idx: Integer; FilePath: string;
 begin
   FilesList := TStringList.Create;
   try
-    for I := 0 to lvAddFiles.Items.Count - 1 do
-      if lvAddFiles.Items[I].Selected then begin
-        if lvAddFiles.Items[I].Caption = '..' then Continue;
-        FilePath := FCurrentAddPath + lvAddFiles.Items[I].Caption;
+    N := lvAddFiles.GetFirstSelected;
+    while N <> nil do
+    begin
+      Idx := N^.Index;
+      if (Idx >= 0) and (Idx < Length(FAddFilesList)) and (FAddFilesList[Idx].Name <> '..') then
+      begin
+        FilePath := FCurrentAddPath + FAddFilesList[Idx].Name;
         if (Length(FilePath) > 0) and (FilePath[Length(FilePath)] = '/') then FilePath := Copy(FilePath, 1, Length(FilePath) - 1);
         FilesList.Add(FilePath);
       end;
+      N := lvAddFiles.GetNextSelected(N);
+    end;
     if FilesList.Count > 0 then begin AddLog(Format('Opening Add dialog with %d selected item(s)', [FilesList.Count])); ShowAddDialog(FilesList); end
     else AddLog('No files selected');
   finally FilesList.Free; end;
@@ -4452,9 +4880,9 @@ var FilesList: TStringList; I: Integer; FilePath: string;
 begin
   FilesList := TStringList.Create;
   try
-    for I := 0 to lvAddFiles.Items.Count - 1 do begin
-      if lvAddFiles.Items[I].Caption = '..' then Continue;
-      FilePath := FCurrentAddPath + lvAddFiles.Items[I].Caption;
+    for I := 0 to High(FAddFilesList) do begin
+      if FAddFilesList[I].Name = '..' then Continue;
+      FilePath := FCurrentAddPath + FAddFilesList[I].Name;
       if (Length(FilePath) > 0) and (FilePath[Length(FilePath)] = '/') then FilePath := Copy(FilePath, 1, Length(FilePath) - 1);
       FilesList.Add(FilePath);
     end;
@@ -4467,10 +4895,12 @@ procedure TfrmMain.mnuAddOpenClick(Sender: TObject); begin OpenSelectedFile; end
 procedure TfrmMain.mnuAddOpenInExplorerClick(Sender: TObject); begin OpenInExplorer; end;
 
 procedure TfrmMain.mnuAddRenameClick(Sender: TObject);
-var OldName, NewName, OldPath, NewPath: string;
+var OldName, NewName, OldPath, NewPath: string; Idx: Integer;
 begin
-  if lvAddFiles.Selected = nil then Exit; if lvAddFiles.Selected.Caption = '..' then Exit;
-  OldName := lvAddFiles.Selected.Caption;
+  Idx := LvGetFocusedIndex(lvAddFiles);
+  if (Idx < 0) or (Idx >= Length(FAddFilesList)) then Exit;
+  if FAddFilesList[Idx].Name = '..' then Exit;
+  OldName := FAddFilesList[Idx].Name;
   if (Length(OldName) > 0) and (OldName[Length(OldName)] = '/') then OldName := Copy(OldName, 1, Length(OldName) - 1);
   NewName := InputBox(S('dlg_rename_title', 'Rename'), S('dlg_rename_prompt', 'Enter new name:'), OldName);
   if (NewName <> '') and (NewName <> OldName) then begin
@@ -4481,18 +4911,25 @@ begin
 end;
 
 procedure TfrmMain.mnuAddDeleteClick(Sender: TObject);
-var I, DeleteCount: Integer; FilePath: string;
+var DeleteCount, SelCnt: Integer; FilePath: string; N: PVirtualNode; Idx: Integer;
 begin
-  if lvAddFiles.SelCount = 0 then Exit;
-  if MessageDlg(S('dlg_delete_title', 'Confirm Delete'), Format(S('dlg_delete_prompt', 'Are you sure you want to delete %d item(s)?'), [lvAddFiles.SelCount]), mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Exit;
+  SelCnt := LvSelectedCount(lvAddFiles);
+  if SelCnt = 0 then Exit;
+  if MessageDlg(S('dlg_delete_title', 'Confirm Delete'), Format(S('dlg_delete_prompt', 'Are you sure you want to delete %d item(s)?'), [SelCnt]), mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Exit;
   DeleteCount := 0;
-  for I := lvAddFiles.Items.Count - 1 downto 0 do
-    if lvAddFiles.Items[I].Selected and (lvAddFiles.Items[I].Caption <> '..') then begin
-      FilePath := FCurrentAddPath + lvAddFiles.Items[I].Caption;
+  N := lvAddFiles.GetFirstSelected;
+  while N <> nil do
+  begin
+    Idx := N^.Index;
+    if (Idx >= 0) and (Idx < Length(FAddFilesList)) and (FAddFilesList[Idx].Name <> '..') then
+    begin
+      FilePath := FCurrentAddPath + FAddFilesList[Idx].Name;
       if (Length(FilePath) > 0) and (FilePath[Length(FilePath)] = '/') then FilePath := Copy(FilePath, 1, Length(FilePath) - 1);
       if DirectoryExists(FilePath) then begin if RemoveDir(FilePath) then Inc(DeleteCount); end
       else begin if SysUtils.DeleteFile(FilePath) then Inc(DeleteCount); end;
     end;
+    N := lvAddFiles.GetNextSelected(N);
+  end;
   AddLog(Format('Deleted %d item(s)', [DeleteCount])); RefreshAddFilesList;
 end;
 
@@ -4508,11 +4945,13 @@ begin
 end;
 
 procedure TfrmMain.mnuAddPropertiesClick(Sender: TObject);
-var FilePath: string;
+var FilePath: string; Idx: Integer;
   {$IFDEF WINDOWS} SEI: SHELLEXECUTEINFOW; WFilePath, WVerb: WideString; {$ENDIF}
 begin
-  if lvAddFiles.Selected = nil then Exit; if lvAddFiles.Selected.Caption = '..' then Exit;
-  FilePath := FCurrentAddPath + lvAddFiles.Selected.Caption;
+  Idx := LvGetFocusedIndex(lvAddFiles);
+  if (Idx < 0) or (Idx >= Length(FAddFilesList)) then Exit;
+  if FAddFilesList[Idx].Name = '..' then Exit;
+  FilePath := FCurrentAddPath + FAddFilesList[Idx].Name;
   if (Length(FilePath) > 0) and (FilePath[Length(FilePath)] = '/') then FilePath := Copy(FilePath, 1, Length(FilePath) - 1);
   {$IFDEF WINDOWS}
   WFilePath := FilePath; WVerb := 'properties';
@@ -4564,7 +5003,7 @@ begin
   FilesStr := BuildSelectedFilesString;
   if FilesStr = '' then Exit;
 
-  FHashFileCount := lvAddFiles.SelCount;
+  FHashFileCount := LvSelectedCount(lvAddFiles);
 
   // 3. Preparazione Comando
   Cmd := 'hash ' + FilesStr + ' -catpaqmode -terse ' + HashAlgo;
@@ -4608,7 +5047,7 @@ begin
   if AFilesList.Count = 0 then Exit;
   Dialog := TfrmSimply.Create(Self);
   try
-    Dialog.SetDLLPath(FBridge.DLLPath);
+    Dialog.SetExternalPath(FBridge.ExternalPath);
     Dialog.SetFileList(AFilesList);
     if Dialog.ShowModal = mrOK then
     begin
@@ -4629,7 +5068,7 @@ begin
   Dialog := TfrmExtract.Create(Self);
   try
     Dialog.SetExtractionParams(FArchivePath, FE.FileName, FV.Version, FPasswordKey, FPasswordFranzen);
-    Dialog.SetDLLPath(FBridge.DLLPath);
+    Dialog.SetExternalPath(FBridge.ExternalPath);
     Dialog.ShowModal;
     if Dialog.GetDestPath <> '' then AddLog('Last extraction destination: ' + Dialog.GetDestPath);
   finally Dialog.Free; end;
@@ -4642,7 +5081,7 @@ begin
   Dialog := TfrmExtract.Create(Self);
   try
     Dialog.SetExtractionParamsAll(FArchivePath, FPasswordKey, FPasswordFranzen);
-    Dialog.SetDLLPath(FBridge.DLLPath);
+    Dialog.SetExternalPath(FBridge.ExternalPath);
     Dialog.ShowModal;
     if Dialog.GetDestPath <> '' then AddLog('Extract all destination: ' + Dialog.GetDestPath);
   finally Dialog.Free; end;
@@ -4810,100 +5249,59 @@ end;
 { --- Sort del file list (lvAddFiles) --- }
 
 procedure TfrmMain.SortLvAddFiles(AColumn: Integer; AAscending: Boolean);
-type
-  // Snapshot immutabile di un item del listview
-  TItemSnapshot = record
-    Caption:  string;
-    Sub0:     string; // Size (formatted)
-    Sub1:     string; // Modified
-    Sub2:     string; // Created
-    Sub3:     string; // Attributes
-    Sub4:     string; // Extension
-    RealSize: Int64;  // dimensione reale in byte (da FAddFilesList)
-    IsFolder: Boolean;
-    OrigIdx:  Integer; // indice originale in FAddFilesList
-  end;
-
 var
-  I, J, N, LvIdx, HasDotDot: Integer;
+  I, J, N, HasDotDot: Integer;
   Swapped: Boolean;
-  Snaps: array of TItemSnapshot;
-  TmpSnap: TItemSnapshot;
+  TmpItem: TFileExplorerItem;
   KeyI, KeyJ: string;
 
-  // Ricava la chiave di sort dallo snapshot (non dall'item live)
-  function SortKey(const S: TItemSnapshot): string;
+  function SortKey(const FI: TFileExplorerItem): string;
   begin
-    // Cartelle sempre prima dei file (prefisso #0), '..' prima di tutto
     case AColumn of
-      0: // Nome
-         if S.IsFolder then Result := #0 + LowerCase(S.Caption)
-         else               Result := #1 + LowerCase(S.Caption);
-      1: // Size numerica reale
-         if S.IsFolder then Result := #0 + LowerCase(S.Caption)  // cartelle in testa
-         else               Result := #1 + Format('%030d', [S.RealSize]);
-      2: // Modified
-         if S.IsFolder then Result := #0 + S.Sub1
-         else               Result := #1 + S.Sub1;
-      3: // Created
-         if S.IsFolder then Result := #0 + S.Sub2
-         else               Result := #1 + S.Sub2;
-      4: // Attributes
-         Result := S.Sub3;
-      5: // Extension
-         if S.IsFolder then Result := #0 + LowerCase(S.Caption)
-         else               Result := #1 + LowerCase(S.Sub4);
+      0: if FI.IsDirectory then Result := #0 + LowerCase(FI.Name)
+         else Result := #1 + LowerCase(FI.Name);
+      1: if FI.IsDirectory then Result := #0 + LowerCase(FI.Name)
+         else Result := #1 + Format('%030d', [FI.Size]);
+      2: if FI.IsDirectory then Result := #0 + FormatDateTime('yyyymmddhhnnss', FI.Modified)
+         else Result := #1 + FormatDateTime('yyyymmddhhnnss', FI.Modified);
+      3: if FI.IsDirectory then Result := #0 + FormatDateTime('yyyymmddhhnnss', FI.Created)
+         else Result := #1 + FormatDateTime('yyyymmddhhnnss', FI.Created);
+      4: begin
+           Result := '';
+           if FI.IsDirectory then Result := '<DIR>';
+           if (FI.Attributes and faReadOnly) <> 0 then Result := Result + 'R';
+         end;
+      5: if FI.IsDirectory then Result := #0 + LowerCase(FI.Name)
+         else Result := #1 + LowerCase(ExtractFileExt(FI.Name));
     else
-      Result := LowerCase(S.Caption);
+      Result := LowerCase(FI.Name);
     end;
   end;
 
 begin
-  N := lvAddFiles.Items.Count;
+  N := Length(FAddFilesList);
   if N <= 1 then Exit;
 
-  // --- 1. Conta e salta l'eventuale riga ".." ---
   HasDotDot := 0;
-  if (N > 0) and (lvAddFiles.Items[0].Caption = '..') then
+  if (N > 0) and (FAddFilesList[0].Name = '..') then
     HasDotDot := 1;
 
-  // Numero di item da ordinare (senza il '..')
   N := N - HasDotDot;
   if N <= 1 then Exit;
 
-  // --- 2. Costruisce snapshot INDIPENDENTI dai TListItem live ---
-  SetLength(Snaps, N);
-  for I := 0 to N - 1 do
-  begin
-    LvIdx := I + HasDotDot;
-    Snaps[I].Caption  := lvAddFiles.Items[LvIdx].Caption;
-    if lvAddFiles.Items[LvIdx].SubItems.Count > 0 then Snaps[I].Sub0 := lvAddFiles.Items[LvIdx].SubItems[0] else Snaps[I].Sub0 := '';
-    if lvAddFiles.Items[LvIdx].SubItems.Count > 1 then Snaps[I].Sub1 := lvAddFiles.Items[LvIdx].SubItems[1] else Snaps[I].Sub1 := '';
-    if lvAddFiles.Items[LvIdx].SubItems.Count > 2 then Snaps[I].Sub2 := lvAddFiles.Items[LvIdx].SubItems[2] else Snaps[I].Sub2 := '';
-    if lvAddFiles.Items[LvIdx].SubItems.Count > 3 then Snaps[I].Sub3 := lvAddFiles.Items[LvIdx].SubItems[3] else Snaps[I].Sub3 := '';
-    if lvAddFiles.Items[LvIdx].SubItems.Count > 4 then Snaps[I].Sub4 := lvAddFiles.Items[LvIdx].SubItems[4] else Snaps[I].Sub4 := '';
-    Snaps[I].IsFolder := (Length(Snaps[I].Caption) > 0) and (Snaps[I].Caption[Length(Snaps[I].Caption)] = '/');
-    // Dimensione reale da FAddFilesList (indice corrispondente = LvIdx in FAddFilesList)
-    if (LvIdx < Length(FAddFilesList)) then
-      Snaps[I].RealSize := FAddFilesList[LvIdx].Size
-    else
-      Snaps[I].RealSize := 0;
-    Snaps[I].OrigIdx := LvIdx;
-  end;
-
-  // --- 3. Bubble sort sugli snapshot ---
+  // Bubble sort su FAddFilesList (escludendo ".." in posizione 0)
   repeat
     Swapped := False;
-    for I := 0 to N - 2 do
+    for I := HasDotDot to HasDotDot + N - 2 do
     begin
       J := I + 1;
-      KeyI := SortKey(Snaps[I]);
-      KeyJ := SortKey(Snaps[J]);
+      KeyI := SortKey(FAddFilesList[I]);
+      KeyJ := SortKey(FAddFilesList[J]);
       if AAscending then
       begin
         if KeyI > KeyJ then
         begin
-          TmpSnap := Snaps[I]; Snaps[I] := Snaps[J]; Snaps[J] := TmpSnap;
+          TmpItem := FAddFilesList[I]; FAddFilesList[I] := FAddFilesList[J]; FAddFilesList[J] := TmpItem;
           Swapped := True;
         end;
       end
@@ -4911,7 +5309,7 @@ begin
       begin
         if KeyI < KeyJ then
         begin
-          TmpSnap := Snaps[I]; Snaps[I] := Snaps[J]; Snaps[J] := TmpSnap;
+          TmpItem := FAddFilesList[I]; FAddFilesList[I] := FAddFilesList[J]; FAddFilesList[J] := TmpItem;
           Swapped := True;
         end;
       end;
@@ -4919,24 +5317,13 @@ begin
     Dec(N);
   until not Swapped;
 
-  // --- 4. Riscrive il listview dagli snapshot già ordinati ---
-  // A questo punto Snaps[] è ordinato e contiene copie indipendenti delle stringhe:
-  // nessun aliasing con i TListItem live, quindi niente duplicazioni.
-  lvAddFiles.Items.BeginUpdate;
+  // Refresh del VST (i nodi sono virtualizzati, basta invalidare)
+  lvAddFiles.BeginUpdate;
   try
-    N := Length(Snaps);
-    for I := 0 to N - 1 do
-    begin
-      LvIdx := I + HasDotDot;
-      lvAddFiles.Items[LvIdx].Caption    := Snaps[I].Caption;
-      if lvAddFiles.Items[LvIdx].SubItems.Count > 0 then lvAddFiles.Items[LvIdx].SubItems[0] := Snaps[I].Sub0;
-      if lvAddFiles.Items[LvIdx].SubItems.Count > 1 then lvAddFiles.Items[LvIdx].SubItems[1] := Snaps[I].Sub1;
-      if lvAddFiles.Items[LvIdx].SubItems.Count > 2 then lvAddFiles.Items[LvIdx].SubItems[2] := Snaps[I].Sub2;
-      if lvAddFiles.Items[LvIdx].SubItems.Count > 3 then lvAddFiles.Items[LvIdx].SubItems[3] := Snaps[I].Sub3;
-      if lvAddFiles.Items[LvIdx].SubItems.Count > 4 then lvAddFiles.Items[LvIdx].SubItems[4] := Snaps[I].Sub4;
-    end;
+    lvAddFiles.Clear;
+    lvAddFiles.RootNodeCount := Length(FAddFilesList);
   finally
-    lvAddFiles.Items.EndUpdate;
+    lvAddFiles.EndUpdate;
   end;
 end;
 
@@ -4945,9 +5332,5 @@ end;
 procedure TfrmMain.btnHelpClick(Sender: TObject);
 begin OpenURL('https://github.com/fcorbelli/catpaq/wiki'); end;
 
-procedure TfrmMain.btnHelp1Click(Sender: TObject);
-begin
-
-end;
 
 end.

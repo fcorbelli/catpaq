@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  Buttons, IniFiles, FileUtil, uzpaqbridge, Types, Menus, ComCtrls, uglobals, LCLIntf;
+  Buttons, IniFiles, FileUtil, uzpaqbridge, Menus, ComCtrls, uglobals, LCLIntf;
 
 type
 
@@ -73,6 +73,9 @@ type
 
     FLogPollTimer: TTimer;
 
+    chkForceOverwrite: TCheckBox;   { creato a runtime nel pnlBottom }
+    FForceOverwrite: Boolean;        { True = aggiunge -force al comando }
+
     procedure LoadRecentPaths;
     procedure SaveRecentPath(const APath: string);
     procedure AddToRecentList(const APath: string);
@@ -87,6 +90,10 @@ type
     procedure UpdateUIForMode;
     procedure UpdateEditWidths;
     procedure SetRunningState(ARunning: Boolean);
+    procedure UpdateMultiPreview;
+    procedure cmbDestPathChange(Sender: TObject);
+    procedure chkForceOverwriteClick(Sender: TObject);
+    procedure OpenDestInExplorer(const ADestPath: string; ASingleFile: Boolean);
   public
     procedure SetExtractionParams(
       const AArchivePath: string;
@@ -112,7 +119,7 @@ type
       const APasswordAES: string;
       const APasswordFranzen: string);
 
-    procedure SetDLLPath(const ADLLPath: string);
+    procedure SetExternalPath(const AExternalPath: string);
     function GetDestPath: string;
 
     property Mode: TExtractMode read FMode write FMode;
@@ -125,7 +132,82 @@ implementation
 
 {$R *.lfm}
 
-uses LCLType;
+uses LCLType
+  {$IFDEF WINDOWS}
+  , Windows, ShellApi
+  {$ENDIF}
+  ;
+
+{ ============================================================================
+  SanitizePathDir: converte la parte DIRECTORY di un path archivio in una
+  stringa sicura da usare come sottocartella nella destinazione.
+
+  Logica:
+    - Estrae solo la parte directory (esclude il nome file finale).
+    - Ogni carattere che NON sia lettera, cifra o '.' viene sostituito con '_'.
+    - Se la directory risultante è vuota (file senza percorso) restituisce ''.
+
+  Esempi:
+    ''               → ''          (nessuna sottocartella)
+    'va01.cpp'       → ''          (nessuna dir)
+    'c:/pippo/x.cpp' → 'c__pippo'
+    'd:\01.cpp'      → 'd_'
+    '../nome.cpp'    → '__'
+    '//srv/sh/f.cpp' → '____srv_sh'
+    '/nome.cpp'      → '_'
+    './nome.cpp'     → '_'
+  ============================================================================ }
+function SanitizePathDir(const AFilePath: string): string;
+var
+  Dir: string;
+  I:   Integer;
+  C:   Char;
+begin
+  Result := '';
+  Dir := ExtractFilePath(AFilePath);
+
+  { Rimuove il separatore finale prodotto da ExtractFilePath }
+  while (Length(Dir) > 0) and
+        ((Dir[Length(Dir)] = '/') or (Dir[Length(Dir)] = '\')) do
+    SetLength(Dir, Length(Dir) - 1);
+
+  if Dir = '' then Exit;
+
+  { Sanitizza: ogni char non alfanumerico e non '.' → '_' }
+  for I := 1 to Length(Dir) do
+  begin
+    C := Dir[I];
+    if ((C >= 'a') and (C <= 'z')) or
+       ((C >= 'A') and (C <= 'Z')) or
+       ((C >= '0') and (C <= '9')) or
+       (C = '.') then
+      Result := Result + C
+    else
+      Result := Result + '_';
+  end;
+end;
+
+{ Dato un path sorgente dell'archivio e una cartella base di destinazione,
+  calcola il path completo di destinazione:
+    - se la dir sanitizzata è vuota → BaseFolder/NomeFile
+    - altrimenti                    → BaseFolder/DirSanitizzata/NomeFile    }
+function BuildDestPath(const AFilePath, ABaseFolder: string): string;
+var
+  SanDir, FName, Base: string;
+begin
+  SanDir := SanitizePathDir(AFilePath);
+  FName  := ExtractFileName(AFilePath);
+
+  { Assicura che BaseFolder termini con '/' }
+  Base := StringReplace(ABaseFolder, '\', '/', [rfReplaceAll]);
+  if (Length(Base) > 0) and (Base[Length(Base)] <> '/') then
+    Base := Base + '/';
+
+  if SanDir = '' then
+    Result := Base + FName
+  else
+    Result := Base + SanDir + '/' + FName;
+end;
 
 { ============================================================================ }
 
@@ -161,6 +243,8 @@ begin
   cmbDestPath.Enabled    := not ARunning;
   btnBrowse.Enabled      := not ARunning;
   pnlExtraFields.Enabled := not ARunning;
+  if Assigned(chkForceOverwrite) then
+    chkForceOverwrite.Enabled := not ARunning;
 end;
 
 procedure TfrmExtract.UpdateUIForMode;
@@ -175,31 +259,40 @@ begin
     SelectDirectoryDialog1.Title := S('extract_dlg_temp_folder', 'Select temp test folder');
     pnlExtraFields.Visible := False;
   end
+  else if FExtractAllMode then
+  begin
+    { Extract all: solo cartella, nessun campo To/Find/Replace }
+    lblDestPath.Caption  := S('extract_lbl_dest_folder', 'Destination folder:');
+    btnOK.Caption        := S('extract_btn_extract', 'Extract');
+    SelectDirectoryDialog1.Title := S('extract_dlg_dest_folder', 'Select destination folder');
+    pnlExtraFields.Visible := False;
+  end
   else
   begin
-    Caption              := S('extract_title_extract', 'Extract from archive');
-    { Etichetta adattiva: cartella se extract-all, file se singolo/multi }
-    if FExtractAllMode then
-      lblDestPath.Caption := S('extract_lbl_dest_folder', 'Destination folder:')
-    else if FFileNames.Count > 1 then
-      lblDestPath.Caption := S('extract_lbl_dest_folder', 'Destination folder:')
-    else
-      lblDestPath.Caption := S('extract_lbl_dest_file',
-        'Destination folder (or file if single):');
+    { Singolo file o multi-file: dest è sempre una CARTELLA.
+      edtTo opzionale: vuoto = nome originale, popolato = -to espliciti. }
+    lblDestPath.Caption  := S('extract_lbl_dest_folder', 'Destination folder:');
     btnOK.Caption        := S('extract_btn_extract', 'Extract');
     SelectDirectoryDialog1.Title := S('extract_dlg_dest_folder', 'Select destination folder');
     pnlExtraFields.Visible := True;
+
+    { Hint contestuale sul campo To: }
+    if FFileNames.Count > 1 then
+      edtTo.TextHint := Format(
+        S('extract_hint_to_multi_opt',
+          'Optional: %d space-separated paths to rename each file'),
+        [FFileNames.Count])
+    else
+      edtTo.TextHint := S('extract_hint_to_opt',
+        'Optional: destination file path to rename the extracted file');
   end;
 
   { Altezza parametrica: bottom dell'ultimo componente visibile + margine }
   if pnlExtraFields.Visible then
     LastBottom := pnlExtraFields.Top + pnlExtraFields.Height
   else
-  begin
-    { Ultimo componente visibile = cmbDestPath (o btnBrowse, stesso Top+Height) }
     LastBottom := cmbDestPath.Top + cmbDestPath.Height;
-  end;
-  pnlTop.Height := LastBottom + 20;   { margine inferiore 20px (scaled units) }
+  pnlTop.Height := LastBottom + 20;
 
   UpdateEditWidths;
 end;
@@ -214,6 +307,105 @@ begin
   edtFind.Width    := W - edtFind.Left;
   edtReplace.Width := W - edtReplace.Left;
   pgrprogress.width:= btnabort.left-pgrprogress.left-4;
+end;
+
+{ Aggiorna il memo con l'anteprima dei -to che saranno generati
+  per la modalità multi-file, in base alla cartella base corrente. }
+procedure TfrmExtract.UpdateMultiPreview;
+var
+  BaseDest, ToVal, FName: string;
+  I: Integer;
+begin
+  if FFileNames.Count <= 1 then Exit;
+
+  BaseDest := NormalizePath(Trim(cmbDestPath.Text));
+  ToVal    := Trim(edtTo.Text);
+
+  { Assicura slash finale per la preview }
+  if (BaseDest <> '') and (BaseDest[Length(BaseDest)] <> '/') and
+     (BaseDest[Length(BaseDest)] <> '\') then
+    BaseDest := BaseDest + '/';
+
+  memLog.Lines.BeginUpdate;
+  try
+    memLog.Lines.Clear;
+    memLog.Lines.Add('=== ' +
+      S('extract_preview_title', 'Extraction preview') + ' ===');
+    memLog.Lines.Add('');
+
+    if Trim(cmbDestPath.Text) = '' then
+      memLog.Lines.Add(S('extract_preview_empty',
+        '  (enter destination folder above to see preview)'))
+    else if ToVal <> '' then
+    begin
+      { Override esplicito: mostra i token dell'utente }
+      memLog.Lines.Add(S('extract_lbl_to_override', 'To override:') + '  ' + ToVal);
+    end
+    else
+    begin
+      { Auto: mostra il -to calcolato per ciascun file }
+      for I := 0 to FFileNames.Count - 1 do
+      begin
+        FName := ExtractFileName(FFileNames[I]);
+        memLog.Lines.Add(Format('  [%d] %s', [I + 1, FFileNames[I]]));
+        memLog.Lines.Add(Format('       -to "%s%s"', [BaseDest, FName]));
+      end;
+    end;
+
+    memLog.Lines.Add('');
+    memLog.Lines.Add(Format(
+      S('extract_preview_note', '%d file(s) will be extracted.'),
+      [FFileNames.Count]));
+  finally
+    memLog.Lines.EndUpdate;
+  end;
+end;
+
+procedure TfrmExtract.cmbDestPathChange(Sender: TObject);
+begin
+  if FFileNames.Count > 1 then
+    UpdateMultiPreview;
+end;
+
+procedure TfrmExtract.chkForceOverwriteClick(Sender: TObject);
+begin
+  FForceOverwrite := chkForceOverwrite.Checked;
+  FIniFile.WriteBool('Extract', 'ForceOverwrite', FForceOverwrite);
+  FIniFile.UpdateFile;
+end;
+
+{ Apre il gestore file sulla destinazione estratta.
+  - ASingleFile=True  : ADestPath è un FILE → apre Explorer con /select
+                        per posizionarsi sul file (Windows);
+                        su altri OS apre la cartella padre.
+  - ASingleFile=False : ADestPath è una CARTELLA → la apre direttamente. }
+procedure TfrmExtract.OpenDestInExplorer(const ADestPath: string;
+  ASingleFile: Boolean);
+begin
+  if ADestPath = '' then Exit;
+
+  if ASingleFile then
+  begin
+    {$IFDEF WINDOWS}
+    { Explorer /select,<path> apre la cartella padre e seleziona il file }
+    ShellExecute(0, 'open', 'explorer.exe',
+      PChar('/select,"' + StringReplace(ADestPath, '/', '\', [rfReplaceAll]) + '"'),
+      nil, SW_SHOWNORMAL);
+    {$ELSE}
+    { Non-Windows: apre la cartella padre }
+    OpenDocument(ExtractFilePath(ADestPath));
+    {$ENDIF}
+  end
+  else
+  begin
+    {$IFDEF WINDOWS}
+    ShellExecute(0, 'explore',
+      PChar(StringReplace(ADestPath, '/', '\', [rfReplaceAll])),
+      nil, nil, SW_SHOWNORMAL);
+    {$ELSE}
+    OpenDocument(ADestPath);
+    {$ENDIF}
+  end;
 end;
 
 procedure TfrmExtract.FormCreate(Sender: TObject);
@@ -234,12 +426,25 @@ begin
   FLogPollTimer.Enabled  := False;
   FLogPollTimer.OnTimer  := @OnLogPollTimer;
 
+  cmbDestPath.OnChange := @cmbDestPathChange;
+
   btnOK.ModalResult := mrNone;
   btnAbort.Visible  := False;
   btnAbort.Enabled  := False;
   pgrProgress.Visible := False;
   lbleta.Visible  := False;
   lbleta.Caption  := '00:00:00';
+
+  { --- Checkbox "Force overwrite" creato a runtime nel pnlBottom --- }
+  FForceOverwrite := FIniFile.ReadBool('Extract', 'ForceOverwrite', False);
+  chkForceOverwrite := TCheckBox.Create(Self);
+  chkForceOverwrite.Parent  := pnlBottom;
+  chkForceOverwrite.Caption := S('chk_force_overwrite', 'Force overwrite (-force)');
+  chkForceOverwrite.Checked := FForceOverwrite;
+  chkForceOverwrite.Left    := 8;
+  chkForceOverwrite.Top     := 8;
+  chkForceOverwrite.Width   := 300;
+  chkForceOverwrite.OnClick := @chkForceOverwriteClick;
 
   FMode := emExtract;
 
@@ -372,7 +577,8 @@ begin
 end;
 
 { Estrae una lista di N file dall'archivio.
-  Il campo edtTo deve contenere esattamente N percorsi separati da spazio. }
+  La cartella base viene inserita dall'utente; i -to vengono calcolati
+  automaticamente tramite SanitizePathDir senza input manuale. }
 procedure TfrmExtract.SetExtractionParamsMulti(
   const AArchivePath: string;
   const AFileNames: TStringList;
@@ -395,32 +601,23 @@ begin
   for I := 0 to AFileNames.Count - 1 do
   begin
     FFileNames.Add(AFileNames[I]);
-    if FFileName = '' then
-      FFileName := AFileNames[I]
-    else
-      FFileName := FFileName + ' ' + AFileNames[I];
     if FileList <> '' then FileList := FileList + ', ';
-    FileList := FileList + ExtractFileName(ExcludeTrailingPathDelimiter(AFileNames[I]));
+    FileList := FileList + ExtractFileName(
+                  ExcludeTrailingPathDelimiter(AFileNames[I]));
   end;
 
-  if AFileNames.Count = 1 then
-    Caption := S('extract_title_file', 'Extract') + ': ' + FileList
-  else
-    Caption := Format(S('extract_title_multi', 'Extract %d files'), [AFileNames.Count]);
+  Caption := Format(S('extract_title_multi', 'Extract %d files'), [AFileNames.Count]);
 
+  { lblInfo mostrerà l'elenco file; il log di anteprima dei -to viene
+    aggiornato in UpdateMultiPreview ogni volta che cambia la dest }
   lblInfo.Caption := Format(
     S('extract_lbl_multi', 'Files (%d): %s'), [AFileNames.Count, FileList]);
 
-  { Hint esplicativo: N file → N path nel campo To: }
-  if AFileNames.Count = 1 then
-    edtTo.TextHint := S('extract_hint_to_file', 'Destination file path (leave empty = use archive path)')
-  else
-    edtTo.TextHint := Format(
-      S('extract_hint_to_multi',
-        'Enter exactly %d destination paths separated by spaces'),
-      [AFileNames.Count]);
+  lblDestPath.Caption := S('extract_lbl_dest_folder', 'Destination folder:');
 
   UpdateUIForMode;
+  { Mostra subito l'anteprima (con dest eventualmente già precompilata) }
+  UpdateMultiPreview;
 end;
 
 procedure TfrmExtract.SetExtractionParamsAll(
@@ -428,12 +625,13 @@ procedure TfrmExtract.SetExtractionParamsAll(
   const APasswordAES: string;
   const APasswordFranzen: string);
 begin
-  FExtractAllMode := True;
   SetExtractionParams(AArchivePath, '', -1, APasswordAES, APasswordFranzen);
+  FExtractAllMode := True;   { deve stare DOPO SetExtractionParams che lo resetta a False }
   Caption := S('extract_title_all', 'Extract everything from archive');
   { In modalità "extract all" il -to è sempre una cartella }
   edtTo.TextHint := S('extract_hint_to_folder',
     'Leave empty: files extracted with their full path inside destination folder');
+  UpdateUIForMode;  { ricalcola layout con FExtractAllMode=True }
 end;
 
 procedure TfrmExtract.SetTestParams(
@@ -454,7 +652,7 @@ begin
   UpdateUIForMode;
 end;
 
-procedure TfrmExtract.SetDLLPath(const ADLLPath: string);
+procedure TfrmExtract.SetExternalPath(const AExternalPath: string);
 begin
   // Non serve
 end;
@@ -506,56 +704,19 @@ begin
     cmbDestPath.Items.Delete(cmbDestPath.Items.Count - 1);
 end;
 
-{ Divide una stringa in token separati da spazi, rispettando i blocchi
-  tra virgolette doppie. Restituisce il numero di token trovati. }
-function SplitTokens(const S: string; out Tokens: TStringDynArray): Integer;
-var
-  I, Len: Integer;
-  InQuote: Boolean;
-  Cur: string;
-begin
-  SetLength(Tokens, 0);
-  Len     := Length(S);
-  I       := 1;
-  InQuote := False;
-  Cur     := '';
-  while I <= Len do
-  begin
-    if S[I] = '"' then
-    begin
-      InQuote := not InQuote;
-      Inc(I);
-    end
-    else if (S[I] = ' ') and (not InQuote) then
-    begin
-      if Cur <> '' then
-      begin
-        SetLength(Tokens, Length(Tokens) + 1);
-        Tokens[High(Tokens)] := Cur;
-        Cur := '';
-      end;
-      Inc(I);
-    end
-    else
-    begin
-      Cur := Cur + S[I];
-      Inc(I);
-    end;
-  end;
-  if Cur <> '' then
-  begin
-    SetLength(Tokens, Length(Tokens) + 1);
-    Tokens[High(Tokens)] := Cur;
-  end;
-  Result := Length(Tokens);
-end;
-
 function TfrmExtract.BuildCommandLine: string;
+{ Logica:
+  - cmbDestPath è SEMPRE una cartella base.
+  - Per ogni file selezionato viene costruito -to "cartella/nomefile".
+  - Se edtTo è popolato con N token (spazio-separati), quei token
+    sostituiscono i -to auto-calcolati (rinomina/reindirizza esplicita).
+  - extract-all: solo -to <cartella>, nessun file esplicito. }
 var
   DestPath: string;
   ToVal, FindVal, ReplaceVal: string;
-  ToTokens: TStringDynArray;
-  ToCount, I: Integer;
+  ToTokens: TStringList;
+  I: Integer;
+  BaseDest, FName, DestFile: string;
 begin
   DestPath := NormalizePath(Trim(cmbDestPath.Text));
 
@@ -577,7 +738,7 @@ begin
 
   if FExtractAllMode then
   begin
-    { Extract all: nessun filtro file, -to è sempre una CARTELLA }
+    { Extract all: nessun file esplicito, -to è la cartella intera }
     Result := Result + ' -to "' + DestPath + '"';
     if FPasswordAES <> '' then
       Result := Result + ' -key "' + FPasswordAES + '"';
@@ -587,145 +748,77 @@ begin
     Exit;
   end;
 
-  { Extract selettivo: 1 o N file }
-  ToVal      := Trim(edtTo.Text);
-  FindVal    := Trim(edtFind.Text);
-  ReplaceVal := Trim(edtReplace.Text);
+  { Aggiunge i nomi dei file da estrarre }
+  for I := 0 to FFileNames.Count - 1 do
+    Result := Result + ' "' + NormalizePath(FFileNames[I]) + '"';
 
-  if FFileNames.Count <= 1 then
+  { Assicura che la cartella base termini con / }
+  BaseDest := DestPath;
+  if (BaseDest <> '') and (BaseDest[Length(BaseDest)] <> '/') then
+    BaseDest := BaseDest + '/';
+
+  { Controlla se edtTo contiene override espliciti }
+  ToVal := Trim(edtTo.Text);
+  if ToVal <> '' then
   begin
-    { === Caso 1: un singolo file (o nessun filtro) === }
-    if FFileName <> '' then
-      Result := Result + ' "' + NormalizePath(FFileName) + '"';
-    Result := Result + ' -to "' + DestPath + '"';
-    if (FVersion > 0) and (FFileName <> '') then
-      Result := Result + ' -until ' + IntToStr(FVersion);
-    if FPasswordAES <> '' then
-      Result := Result + ' -key "' + FPasswordAES + '"';
-    if FPasswordFranzen <> '' then
-      Result := Result + ' -franzen "' + FPasswordFranzen + '"';
-    { -to aggiuntivo da edtTo (rinomina/reindirizza il singolo file estratto) }
-    if ToVal <> '' then
-      Result := Result + ' -to "' + NormalizePath(ToVal) + '"';
-    if FindVal <> '' then
-      Result := Result + ' -find "' + FindVal + '"';
-    if ReplaceVal <> '' then
-      Result := Result + ' -replace "' + ReplaceVal + '"';
-    Result := Result + ' -catpaqmode';
+    { Override esplicito: splitta i token e usa quelli come -to }
+    ToTokens := TStringList.Create;
+    try
+      ExtractStrings([' '], ['"'], PChar(ToVal), ToTokens);
+      for I := ToTokens.Count - 1 downto 0 do
+        if Trim(ToTokens[I]) = '' then ToTokens.Delete(I);
+      for I := 0 to ToTokens.Count - 1 do
+        Result := Result + ' -to "' + NormalizePath(Trim(ToTokens[I])) + '"';
+    finally
+      ToTokens.Free;
+    end;
   end
   else
   begin
-    { === Caso 2: lista di N file → N parametri file + N parametri -to === }
-    { I nomi dei file vengono aggiunti tutti }
+    { Auto: per ogni file costruisce cartella_base/nome_file }
     for I := 0 to FFileNames.Count - 1 do
-      Result := Result + ' "' + NormalizePath(FFileNames[I]) + '"';
-
-    { Il campo edtTo deve contenere N token separati da spazio }
-    ToCount := SplitTokens(ToVal, ToTokens);
-
-    if ToCount = FFileNames.Count then
     begin
-      { N file → N destinazioni individuale: solo i -to specifici,
-        senza il -to cartella base (zpaqfranz usa i -to nell'ordine dei file) }
-      for I := 0 to ToCount - 1 do
-        Result := Result + ' -to "' + NormalizePath(ToTokens[I]) + '"';
-    end
-    else
-    begin
-      { To: vuoto o non specificato: usa la cartella di destinazione base }
-      Result := Result + ' -to "' + DestPath + '"';
+      FName    := ExtractFileName(FFileNames[I]);
+      DestFile := BaseDest + FName;
+      Result   := Result + ' -to "' + NormalizePath(DestFile) + '"';
     end;
-
-    if FPasswordAES <> '' then
-      Result := Result + ' -key "' + FPasswordAES + '"';
-    if FPasswordFranzen <> '' then
-      Result := Result + ' -franzen "' + FPasswordFranzen + '"';
-    if FindVal <> '' then
-      Result := Result + ' -find "' + FindVal + '"';
-    if ReplaceVal <> '' then
-      Result := Result + ' -replace "' + ReplaceVal + '"';
-    Result := Result + ' -catpaqmode';
   end;
+
+  if (FVersion > 0) and (FFileNames.Count = 1) then
+    Result := Result + ' -until ' + IntToStr(FVersion);
+  if FPasswordAES <> '' then
+    Result := Result + ' -key "' + FPasswordAES + '"';
+  if FPasswordFranzen <> '' then
+    Result := Result + ' -franzen "' + FPasswordFranzen + '"';
+
+  FindVal    := Trim(edtFind.Text);
+  ReplaceVal := Trim(edtReplace.Text);
+  if FindVal    <> '' then Result := Result + ' -find "'    + FindVal    + '"';
+  if ReplaceVal <> '' then Result := Result + ' -replace "' + ReplaceVal + '"';
+  Result := Result + ' -catpaqmode';
 end;
 
 procedure TfrmExtract.ExecuteCommand;
 var
   DestPath, CommandLine: string;
-  ToVal: string;
-  ToTokens: TStringDynArray;
-  ToCount: Integer;
 begin
   DestPath := Trim(cmbDestPath.Text);
 
   if (FMode = emExtract) and (DestPath = '') then
   begin
-    ShowMessage('Please enter or select a destination folder.');
+    ShowMessage(S('msg_enter_dest', 'Please enter or select a destination folder.'));
     cmbDestPath.SetFocus;
     Exit;
   end;
 
-  { === Validazione campo To: per lista di N file === }
-  if (FMode = emExtract) and (not FExtractAllMode) and (FFileNames.Count > 1) then
-  begin
-    ToVal   := Trim(edtTo.Text);
-    ToCount := SplitTokens(ToVal, ToTokens);
-    if (ToVal <> '') and (ToCount <> FFileNames.Count) then
-    begin
-      ShowMessage(Format(
-        'To extract %d files you must specify exactly %d distinct destination paths' +
-        ' separated by spaces in the "To:" field.' + LineEnding + LineEnding +
-        'Currently found: %d path(s).' + LineEnding + LineEnding +
-        'Example for 2 files:' + LineEnding +
-        '  "Z:\dest\file1.cpp" "Z:\dest\file2.cpp"' + LineEnding +
-        'or without quotes if paths contain no spaces:' + LineEnding +
-        '  Z:\dest\file1.cpp Z:\dest\file2.cpp',
-        [FFileNames.Count, FFileNames.Count, ToCount]));
-      edtTo.SetFocus;
-      Exit;
-    end;
-  end;
-
+  { cmbDestPath è SEMPRE una cartella: la creiamo se non esiste }
   if DestPath <> '' then
   begin
-    { Determina se DestPath è una CARTELLA o un FILE di destinazione.
-      - extract-all          → sempre cartella → ForceDirectories
-      - multi-file (N > 1)   → cartella base   → ForceDirectories
-      - singolo file         → FILE di dest    → NON creare la cartella,
-                               altrimenti zpaqfranz trova una dir con quel
-                               nome e non riesce a scrivere il file }
-    if FExtractAllMode or (FFileNames.Count > 1) then
+    if not ForceDirectories(DestPath) then
     begin
-      { Modalità cartella: verifica esistenza e crea se necessario }
-      if (FMode = emExtract) and DirectoryExists(DestPath) then
-      begin
-        if MessageDlg('The destination folder already exists.' + LineEnding +
-                      'Overwrite existing files?',
-                      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
-          Exit;
-      end;
-      if not ForceDirectories(DestPath) then
-      begin
-        ShowMessage('Cannot create folder:' + LineEnding + DestPath);
-        Exit;
-      end;
-    end
-    else
-    begin
-      { Modalità file singolo: DestPath è il path del FILE da creare.
-        Creiamo solo la cartella PADRE se non esiste, mai DestPath stesso. }
-      if DirectoryExists(DestPath) then
-      begin
-        ShowMessage('Cannot extract: "' + DestPath + '" already exists as a folder.' +
-                    LineEnding + 'Please specify a file path, not a folder.');
-        Exit;
-      end;
-      { Crea la cartella padre se necessario }
-      if not ForceDirectories(ExtractFilePath(DestPath)) then
-      begin
-        ShowMessage('Cannot create parent folder:' + LineEnding +
-                    ExtractFilePath(DestPath));
-        Exit;
-      end;
+      ShowMessage(S('msg_cannot_create_folder', 'Cannot create folder:') +
+                  LineEnding + DestPath);
+      Exit;
     end;
   end;
 
@@ -741,9 +834,9 @@ begin
     Exit;
   end;
 
-  if not ZpaqBridgeMain.LoadDLL then
+  if not ZpaqBridgeMain.LoadExternal then
   begin
-    ShowMessage('zpaqfranz DLL not found.');
+    ShowMessage('zpaqfranz not found.');
     Exit;
   end;
 
@@ -752,19 +845,9 @@ begin
 
   CommandLine := BuildCommandLine;
 
-  { -force:
-     - extract-all e cartella dest già esistente → overwrite
-     - singolo file o multi-file → sempre, perché -to punta a un FILE }
-  if FMode = emExtract then
-  begin
-    if FExtractAllMode then
-    begin
-      if (DestPath <> '') and DirectoryExists(DestPath) then
-        CommandLine := CommandLine + ' -force';
-    end
-    else
-      CommandLine := CommandLine + ' -force';  // file singolo o lista: -to è un file
-  end;
+  { -force: aggiunto solo se il checkbox "Force overwrite" è spuntato }
+  if (FMode = emExtract) and FForceOverwrite then
+    CommandLine := CommandLine + ' -force';
 
   if FMode = emTest then
   begin
@@ -780,27 +863,22 @@ begin
     memLog.Lines.Add('=== Starting Extraction ===');
     memLog.Lines.Add('Archive    : ' + FArchivePath);
     if FExtractAllMode then
-    begin
-      memLog.Lines.Add('File/Folder: (extract everything)');
-      memLog.Lines.Add('Mode       : all files → destination FOLDER');
-    end
+      memLog.Lines.Add('File/Folder: (extract everything)')
     else if FFileNames.Count > 1 then
-    begin
-      memLog.Lines.Add(Format('File/Folder: %d files selected', [FFileNames.Count]));
-      memLog.Lines.Add('Mode       : multi-file → individual -to destinations');
-    end
+      memLog.Lines.Add(Format('File/Folder: %d files', [FFileNames.Count]))
     else if FFileName <> '' then
-    begin
-      memLog.Lines.Add('File/Folder: ' + FFileName);
-      memLog.Lines.Add('Mode       : single file → -to is a FILE path');
-    end
+      memLog.Lines.Add('File/Folder: ' + FFileName)
     else
       memLog.Lines.Add('File/Folder: (everything)');
-    if (FVersion > 0) and (FFileName <> '') and (FFileNames.Count <= 1) then
+    memLog.Lines.Add('Destination: ' + DestPath);
+    if Trim(edtTo.Text) <> '' then
+      memLog.Lines.Add('To override: ' + Trim(edtTo.Text));
+    if (FVersion > 0) and (FFileNames.Count <= 1) then
       memLog.Lines.Add('Version    : ' + IntToStr(FVersion))
     else
       memLog.Lines.Add('Version    : latest');
-    memLog.Lines.Add('Destination: ' + DestPath);
+    if FForceOverwrite then
+      memLog.Lines.Add('Force      : YES (-force)');
   end;
 
   memLog.Lines.Add('');
@@ -967,15 +1045,22 @@ begin
     end
     else
     begin
-      Msg := OpName + ' completed successfully.' + LineEnding +
-             'Destination: ' + Trim(cmbDestPath.Text);
+      Msg := S('msg_extract_ok', 'Extraction completed successfully.') + LineEnding +
+             S('extract_lbl_dest_folder', 'Destination folder:') + ' ' +
+             Trim(cmbDestPath.Text);
       memLog.Lines.Add(Msg);
-      { Chiede se aprire la cartella di destinazione. Default: No (mbNo). }
-      if MessageDlg('Extraction completed successfully.' + LineEnding +
-                    'Destination: ' + Trim(cmbDestPath.Text) + LineEnding + LineEnding +
-                    'Open destination folder?',
-                    mtConfirmation, [mbYes, mbNo], 0, mbNo) = mrYes then
-        OpenDocument(Trim(cmbDestPath.Text));
+
+      { Determina se la dest è un FILE singolo o una CARTELLA:
+        - singolo file (FFileNames.Count=1 e non extract-all) → apri cartella + seleziona file
+        - multi-file o extract-all → apri la cartella base }
+      if MessageDlg(
+           S('msg_extract_ok', 'Extraction completed successfully.') + LineEnding +
+           S('extract_lbl_dest_folder', 'Destination:') + ' ' +
+           Trim(cmbDestPath.Text) + LineEnding + LineEnding +
+           S('msg_open_dest', 'Open destination in Explorer?'),
+           mtConfirmation, [mbYes, mbNo], 0, mbNo) = mrYes then
+        { cmbDestPath è sempre una cartella }
+        OpenDestInExplorer(Trim(cmbDestPath.Text), False);
     end;
   end
   else

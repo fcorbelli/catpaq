@@ -205,7 +205,7 @@ type
   public
     procedure SetFileList(const AFiles: TStringList);
     procedure SaveRecentArchive(const AFileName: string);
-    procedure SetDLLPath(const ADLLPath: string);
+    procedure SetExternalPath(const AExternalPath: string);
   end;
 
 var
@@ -677,7 +677,7 @@ end;
 { Public interface                                                              }
 { ---------------------------------------------------------------------------- }
 
-procedure TfrmSimply.SetDLLPath(const ADLLPath: string);
+procedure TfrmSimply.SetExternalPath(const AExternalPath: string);
 begin
 end;
 
@@ -1207,7 +1207,7 @@ begin
     Exit;
   end;
 
-  if not ZpaqBridgeMain.LoadDLL then
+  if not ZpaqBridgeMain.LoadExternal then
   begin
     ShowMessage('zpaqfranz executable not found.');
     Exit;
